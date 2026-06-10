@@ -57,14 +57,13 @@
   const GAS = "https://script.google.com/macros/s/AKfycbz9ZQKuZVL6knaHmTOa4rMgs_GeQ0VsQLnLtPn3nCfK6H_8CjohdeD7oDygDR0JXKon/exec";
   const GST_RATE = 0.18;
 
-  // ── MINIMAL FALLBACK (overwritten by GAS on load) ─────────────────
   const DEFAULT_SETTINGS = {
     barName:"VELVET BARREL", barAddress:"", gstNumber:"", gstRate:18,
     tables:"T1,T2,T3,T4,T5,T6,T7,T8", currency:"₹",
     githubOwner:"", githubRepo:"", githubToken:"", logoPath:"",
   };
 
-  // ── GAS FETCH HELPER (all via GET) ────────────────────────────────
+  // ── GAS FETCH HELPER ──────────────────────────────────────────────
   async function gasGet(action, body = null) {
     let url = `${GAS}?action=${action}`;
     if (body) url += `&body=${encodeURIComponent(JSON.stringify(body))}`;
@@ -82,7 +81,7 @@
       mlPerBottle: +r["ML per Bottle"] || 750,
       qty: +r["Qty Available"] || 0,
       lowStockThreshold: +r["Low Stock Threshold"] || 2,
-      active: r["Active"] !== false && r["Active"] !== "FALSE" && r["Active"] !== false,
+      active: r["Active"] !== false && r["Active"] !== "FALSE",
     };
   }
   function mapOrderRow(r) {
@@ -108,6 +107,7 @@
   }
 
   // ── GITHUB IMAGE UPLOAD ───────────────────────────────────────────
+  // Converts file to base64 data URL
   function fileToBase64(file) {
     return new Promise((res, rej) => {
       const r = new FileReader();
@@ -116,21 +116,54 @@
       r.readAsDataURL(file);
     });
   }
+
+  // Upload image to GitHub using the item's Sheet ID as filename
+  // so inventory sheet ID === GitHub filename === consistent reference
   async function uploadToGithub(file, itemId, settings) {
     const { githubOwner, githubRepo, githubToken } = settings;
     if (!githubOwner || !githubRepo || !githubToken) return "";
-    const base64 = await fileToBase64(file);
-    const path = `images/${itemId}.jpg`;
+
+    const base64Full = await fileToBase64(file);
+    const base64Content = base64Full.split(",")[1]; // strip data:...;base64, prefix
+    const ext = file.type.includes("png") ? "png" : "jpg";
+    // Filename matches the Item ID from the sheet exactly, e.g. LQ-0001.jpg
+    const path = `images/${itemId}.${ext}`;
+
+    // Check if file already exists (need its SHA to overwrite)
+    let sha = undefined;
+    try {
+      const check = await fetch(
+        `https://api.github.com/repos/${githubOwner}/${githubRepo}/contents/${path}`,
+        { headers: { Authorization: `token ${githubToken}` } }
+      );
+      if (check.ok) {
+        const existing = await check.json();
+        sha = existing.sha;
+      }
+    } catch(_) {}
+
+    const payload = {
+      message: `Upload image for ${itemId}`,
+      content: base64Content,
+    };
+    if (sha) payload.sha = sha; // required to update existing file
+
     const res = await fetch(
       `https://api.github.com/repos/${githubOwner}/${githubRepo}/contents/${path}`,
       {
         method: "PUT",
-        headers: { Authorization: `token ${githubToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ message: `Add image for ${itemId}`, content: base64.split(",")[1] }),
+        headers: {
+          Authorization: `token ${githubToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
       }
     );
     const json = await res.json();
-    return json.content?.download_url || "";
+    // Use raw.githubusercontent.com URL for direct image serving
+    if (json.content?.download_url) return json.content.download_url;
+    // Fallback to raw URL pattern
+    return `https://raw.githubusercontent.com/${githubOwner}/${githubRepo}/main/${path}`;
   }
 
   // ── PDF BILL ──────────────────────────────────────────────────────
@@ -211,11 +244,11 @@
   // ── SHARED UI ─────────────────────────────────────────────────────
   function Modal({ title, children, onClose }) {
     return (
-      <div style={{position:"fixed",inset:0,background:"rgba(26,26,46,0.6)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0"}}>
+      <div style={{position:"fixed",inset:0,background:"rgba(26,26,46,0.6)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
         <div style={{background:"#FFFFFF",borderRadius:"20px 20px 0 0",padding:"24px 20px 32px",width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto",animation:"slideUp 0.25s ease"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
             <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#1A1A2E",letterSpacing:1}}>{title}</div>
-            <button onClick={onClose} style={{background:"#F0F0F5",border:"none",color:"#666",width:32,height:32,borderRadius:"50%",fontSize:18,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+            <button onClick={onClose} style={{background:"#F0F0F5",border:"none",color:"#666",width:32,height:32,borderRadius:"50%",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
           </div>
           {children}
         </div>
@@ -280,10 +313,14 @@
     );
   }
 
-  // ── PIN SCREEN ────────────────────────────────────────────────────
+  // ── PIN SCREEN — with Forgot PIN ──────────────────────────────────
+  // CHANGE: "Forgot PIN" link is now HERE on the PIN screen, not inside the dashboard.
+  // When clicked, it calls GAS sendResetPin which emails the PIN to the hardcoded address.
   function PinScreen({ onUnlock, toast }) {
     const [pin, setPin] = useState("");
     const [loading, setLoading] = useState(false);
+    const [forgotLoading, setForgotLoading] = useState(false);
+    const [forgotSent, setForgotSent] = useState(false);
 
     const handleUnlock = async () => {
       if (!pin) return;
@@ -293,7 +330,7 @@
         if (res.success && res.data?.valid) {
           onUnlock();
         } else {
-          toast("Wrong PIN","error");
+          toast("Wrong PIN — try Forgot PIN if needed","error");
           setPin("");
         }
       } catch(e) {
@@ -302,60 +339,120 @@
       setLoading(false);
     };
 
+    const handleForgotPin = async () => {
+      setForgotLoading(true);
+      try {
+        const res = await gasGet("sendResetPin");
+        if (res.success) {
+          setForgotSent(true);
+          toast("PIN sent to the registered email","success");
+        } else {
+          toast(res.message || "Could not send email","error");
+        }
+      } catch(e) {
+        toast("Connection error","error");
+      }
+      setForgotLoading(false);
+    };
+
     return (
       <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"calc(100vh - 54px)",padding:20}}>
         <Card style={{padding:36,width:"100%",maxWidth:340,textAlign:"center"}}>
           <div style={{fontSize:40,marginBottom:8}}>🔐</div>
           <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:28,color:"#1A1A2E",marginBottom:6}}>MANAGER ACCESS</div>
           <p style={{color:"#888",fontSize:13,marginBottom:24}}>Enter your PIN to continue</p>
-          <input type="password" value={pin}
+          <input
+            type="password"
+            value={pin}
             onChange={e => setPin(e.target.value)}
             onKeyDown={e => e.key==="Enter" && handleUnlock()}
-            placeholder="••••••" maxLength={6} inputMode="numeric"
-            style={{textAlign:"center",fontSize:28,letterSpacing:12,marginBottom:16,background:"#F7F8FA"}} />
-          <Btn onClick={handleUnlock} disabled={loading} style={{width:"100%",padding:"14px 0",fontSize:14}}>
+            placeholder="••••••"
+            maxLength={6}
+            inputMode="numeric"
+            style={{textAlign:"center",fontSize:28,letterSpacing:12,marginBottom:16,background:"#F7F8FA"}}
+          />
+          <Btn onClick={handleUnlock} disabled={loading} style={{width:"100%",padding:"14px 0",fontSize:14,marginBottom:16}}>
             {loading ? "Verifying..." : "UNLOCK"}
           </Btn>
+
+          {/* ── FORGOT PIN ── */}
+          {!forgotSent ? (
+            <button
+              onClick={handleForgotPin}
+              disabled={forgotLoading}
+              style={{background:"none",border:"none",color:"#C8873A",fontSize:13,textDecoration:"underline",padding:0,opacity:forgotLoading?0.5:1}}
+            >
+              {forgotLoading ? "Sending..." : "Forgot PIN? Email it to me"}
+            </button>
+          ) : (
+            <div style={{color:"#27AE60",fontSize:12,padding:"8px 12px",background:"#F0FBF0",borderRadius:8}}>
+              ✅ PIN sent to ashokmarley1502@gmail.com
+            </div>
+          )}
         </Card>
       </div>
     );
   }
 
-  // ── MENU ITEM CARD (mobile optimised) ─────────────────────────────
+  // ── MENU ITEM CARD — with product image ───────────────────────────
+  // CHANGE: Image displayed prominently at top of card.
+  // Falls back to emoji if no imageUrl is set.
   function MenuItemCard({ item, onAdd }) {
     const [qty, setQty] = useState(1);
     const [unit, setUnit] = useState(item.category==="Liquor" ? "small" : "bottle");
+    const [imgError, setImgError] = useState(false);
     const isLow = item.qty <= item.lowStockThreshold;
     const price = item.category==="Liquor" ? item.price30ml*(unit==="small"?1:2) : item.priceBottle;
 
+    const showEmoji = !item.imageUrl || imgError;
+
     return (
       <Card style={{padding:12,border:isLow?"1.5px solid #F5C0BB":"1px solid #EBEBF5",display:"flex",flexDirection:"column",gap:8}}>
-        <div style={{background:"#F7F8FA",borderRadius:8,height:72,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,overflow:"hidden"}}>
-          {item.imageUrl
-            ? <img src={item.imageUrl} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8}} />
-            : item.category==="Liquor" ? "🥃" : "🥤"
+        {/* Product image / emoji thumbnail */}
+        <div style={{
+          background: showEmoji ? "#F7F8FA" : "transparent",
+          borderRadius:8, height:80,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          fontSize:32, overflow:"hidden", flexShrink:0,
+        }}>
+          {showEmoji
+            ? (item.category==="Liquor" ? "🥃" : "🥤")
+            : (
+              <img
+                src={item.imageUrl}
+                alt={item.name}
+                onError={() => setImgError(true)}
+                style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8}}
+              />
+            )
           }
         </div>
+
         <div>
           <div style={{fontSize:13,fontWeight:600,lineHeight:1.3,color:"#1A1A2E"}}>{item.name}</div>
           <div style={{fontSize:11,color:"#888",marginTop:2}}>{item.category}</div>
           {isLow && <div style={{fontSize:10,color:"#E74C3C",fontWeight:700,marginTop:2}}>⚠ LOW STOCK</div>}
         </div>
+
         <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:"#C8873A",fontWeight:600}}>
           ₹{price}
         </div>
+
         {item.category==="Liquor" && (
           <select value={unit} onChange={e => setUnit(e.target.value)} style={{fontSize:12,padding:"6px 8px"}}>
             <option value="small">Small 30ml — ₹{item.price30ml}</option>
             <option value="large">Large 60ml — ₹{item.price30ml*2}</option>
           </select>
         )}
+
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <button onClick={() => setQty(q => Math.max(1,q-1))} style={{background:"#F0F0F5",border:"none",color:"#1A1A2E",width:32,height:32,borderRadius:8,fontSize:16,fontWeight:700}}>−</button>
           <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,flex:1,textAlign:"center",fontWeight:600}}>{qty}</span>
           <button onClick={() => setQty(q => q+1)} style={{background:"#F0F0F5",border:"none",color:"#1A1A2E",width:32,height:32,borderRadius:8,fontSize:16,fontWeight:700}}>+</button>
-          <button onClick={() => { onAdd(item,qty,unit); setQty(1); }}
-            style={{background:"#C8873A",border:"none",color:"#FFF",padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>
+          <button
+            onClick={() => { onAdd(item,qty,unit); setQty(1); }}
+            style={{background:"#C8873A",border:"none",color:"#FFF",padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}
+          >
             ADD
           </button>
         </div>
@@ -364,6 +461,7 @@
   }
 
   // ── SERVER APP ────────────────────────────────────────────────────
+  // CHANGE: No PIN lock on server/tables mode. Tables are always accessible.
   function ServerApp({ inventory, orders, setOrders, bills, setBills, tables, getTableStatus, settings, toast, refreshInventory }) {
     const [screen, setScreen] = useState("tables");
     const [activeTable, setActiveTable] = useState(null);
@@ -500,22 +598,20 @@
       </div>
     );
 
-    // ── ORDER SCREEN (mobile: stacked) ──
+    // ── ORDER SCREEN ──
     return (
       <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 54px)",overflow:"hidden"}}>
-        {/* Header */}
         <div style={{background:"#FFFFFF",padding:"10px 14px",borderBottom:"1px solid #EBEBF5",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <button onClick={() => setScreen("tables")} style={{background:"#F0F0F5",border:"none",color:"#1A1A2E",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600}}>← Back</button>
           <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#C8873A",letterSpacing:2}}>TABLE {activeTable}</div>
           <div style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{customerInfo.name}</div>
         </div>
 
-        {/* Body: menu + cart side by side on tablet, stacked on phone */}
         <div style={{display:"flex",flex:1,overflow:"hidden",flexDirection:"row"}}>
           {/* Menu */}
           <div style={{flex:1,overflowY:"auto",padding:"12px 10px",borderRight:"1px solid #EBEBF5",minWidth:0}}>
             <input placeholder="🔍 Search..." value={search} onChange={e => setSearch(e.target.value)} style={{marginBottom:10,background:"#F7F8FA"}} />
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(148px,1fr))",gap:8}}>
               {filtered.map(item => <MenuItemCard key={item.id} item={item} onAdd={addToCart} />)}
               {!filtered.length && <div style={{gridColumn:"1/-1",textAlign:"center",color:"#888",padding:30,fontSize:13}}>No items found</div>}
             </div>
@@ -622,53 +718,88 @@
   }
 
   // ── INVENTORY TAB ─────────────────────────────────────────────────
+  // CHANGE: Image upload now uses the item's Sheet ID as the GitHub filename.
+  // For new items: GAS returns the new ID, then we upload with that exact ID.
+  // For edits: we already have item.id, upload directly.
   function InventoryTab({ inventory, setInventory, settings, toast }) {
     const [showAdd, setShowAdd] = useState(false);
     const [editItem, setEditItem] = useState(null);
     const [form, setForm] = useState({name:"",category:"Liquor",price30ml:"",priceBottle:"",mlPerBottle:750,qty:1,lowStockThreshold:2});
     const [imageFile, setImageFile] = useState(null);
+    const [imgPreview, setImgPreview] = useState(null);
     const [saving, setSaving] = useState(false);
 
     const openAdd = () => {
       setEditItem(null);
       setForm({name:"",category:"Liquor",price30ml:"",priceBottle:"",mlPerBottle:750,qty:1,lowStockThreshold:2});
+      setImageFile(null); setImgPreview(null);
       setShowAdd(true);
     };
     const openEdit = item => {
       setEditItem(item);
       setForm({name:item.name,category:item.category,price30ml:item.price30ml,priceBottle:item.priceBottle,mlPerBottle:item.mlPerBottle,qty:item.qty,lowStockThreshold:item.lowStockThreshold});
+      setImageFile(null); setImgPreview(item.imageUrl||null);
       setShowAdd(true);
+    };
+
+    const handleImagePick = e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onload = ev => setImgPreview(ev.target.result);
+      reader.readAsDataURL(file);
     };
 
     const saveItem = async () => {
       if (!form.name.trim()) { toast("Item name required","error"); return; }
       setSaving(true);
       let imageUrl = editItem?.imageUrl || "";
-      if (imageFile) {
-        try {
-          const tempId = editItem ? editItem.id : `TEMP-${Date.now()}`;
-          imageUrl = await uploadToGithub(imageFile, tempId, settings);
-        } catch { toast("Image upload failed — item saved without image","info"); }
-      }
-      const payload = {
-        name:form.name.trim(), category:form.category,
-        price30ml:+form.price30ml, priceBottle:+form.priceBottle,
-        mlPerBottle:+form.mlPerBottle, qty:+form.qty,
-        lowStockThreshold:+form.lowStockThreshold, imageUrl,
-      };
+
       try {
         if (editItem) {
-          await gasGet("updateInventoryItem", {...payload, id:editItem.id});
+          // ── EDIT: upload image using existing item ID ──
+          if (imageFile) {
+            try {
+              imageUrl = await uploadToGithub(imageFile, editItem.id, settings);
+            } catch { toast("Image upload failed — item saved without new image","info"); }
+          }
+          const payload = {
+            id: editItem.id,
+            name:form.name.trim(), category:form.category,
+            price30ml:+form.price30ml, priceBottle:+form.priceBottle,
+            mlPerBottle:+form.mlPerBottle, qty:+form.qty,
+            lowStockThreshold:+form.lowStockThreshold, imageUrl,
+          };
+          await gasGet("updateInventoryItem", payload);
           setInventory(p => p.map(i => i.id===editItem.id ? {...i,...payload} : i));
           toast("Item updated!","success");
         } else {
+          // ── ADD: first create item in sheet to get the real ID ──
+          const payload = {
+            name:form.name.trim(), category:form.category,
+            price30ml:+form.price30ml, priceBottle:+form.priceBottle,
+            mlPerBottle:+form.mlPerBottle, qty:+form.qty,
+            lowStockThreshold:+form.lowStockThreshold, imageUrl:"",
+          };
           const res = await gasGet("addInventoryItem", payload);
           const newId = res.data?.id || `LOCAL-${Date.now()}`;
-          setInventory(p => [...p, {id:newId,...payload,active:true}]);
+
+          // ── Now upload image with the real Sheet ID as filename ──
+          if (imageFile) {
+            try {
+              imageUrl = await uploadToGithub(imageFile, newId, settings);
+              // Update the sheet row with the image URL
+              await gasGet("updateInventoryItem", { id: newId, imageUrl });
+            } catch { toast("Image upload failed — item saved without image","info"); }
+          }
+
+          setInventory(p => [...p, {id:newId,...payload,imageUrl,active:true}]);
           toast("Item added!","success");
         }
       } catch(e) { toast("Save failed","error"); }
-      setSaving(false); setShowAdd(false); setEditItem(null); setImageFile(null);
+
+      setSaving(false); setShowAdd(false); setEditItem(null); setImageFile(null); setImgPreview(null);
     };
 
     const deleteItem = async id => {
@@ -693,7 +824,10 @@
               <Card key={item.id} style={{padding:12,border:isLow?"1.5px solid #F5C0BB":"1px solid #EBEBF5",position:"relative"}}>
                 {isLow && <div style={{position:"absolute",top:8,right:8,background:"#FFF0F0",color:"#E74C3C",fontSize:9,padding:"2px 7px",borderRadius:20,fontWeight:700}}>LOW</div>}
                 <div style={{background:"#F7F8FA",borderRadius:8,height:70,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,marginBottom:8,overflow:"hidden"}}>
-                  {item.imageUrl ? <img src={item.imageUrl} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8}} /> : item.category==="Liquor" ? "🥃" : "🥤"}
+                  {item.imageUrl
+                    ? <img src={item.imageUrl} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8}} onError={e=>e.target.style.display="none"} />
+                    : item.category==="Liquor" ? "🥃" : "🥤"
+                  }
                 </div>
                 <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:"#aaa",marginBottom:2}}>{item.id}</div>
                 <div style={{fontSize:13,fontWeight:700,marginBottom:2,color:"#1A1A2E"}}>{item.name}</div>
@@ -718,7 +852,7 @@
         </div>
 
         {showAdd && (
-          <Modal title={editItem?"Edit Item":"Add Item"} onClose={() => {setShowAdd(false); setEditItem(null);}}>
+          <Modal title={editItem?"Edit Item":"Add Item"} onClose={() => {setShowAdd(false); setEditItem(null); setImgPreview(null);}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
               <FieldWrap full>
                 <Label>Item Name</Label>
@@ -751,8 +885,16 @@
                 <input type="number" inputMode="numeric" value={form.lowStockThreshold} onChange={e=>setForm(p=>({...p,lowStockThreshold:e.target.value}))} />
               </div>
               <FieldWrap full>
-                <Label>Item Image</Label>
-                <input type="file" accept="image/*" onChange={e=>setImageFile(e.target.files[0])} />
+                <Label>Item Image {!settings.githubOwner && <span style={{color:"#E74C3C",fontSize:10}}>(configure GitHub in Settings first)</span>}</Label>
+                {imgPreview && (
+                  <div style={{marginBottom:8,borderRadius:8,overflow:"hidden",height:80,background:"#F7F8FA",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <img src={imgPreview} alt="preview" style={{height:"100%",objectFit:"contain"}} />
+                  </div>
+                )}
+                <input type="file" accept="image/*" onChange={handleImagePick} />
+                {editItem && editItem.imageUrl && !imageFile && (
+                  <div style={{fontSize:10,color:"#888",marginTop:4}}>Current image will be kept if no new file is chosen.</div>
+                )}
               </FieldWrap>
             </div>
             <Btn onClick={saveItem} disabled={saving} style={{width:"100%",padding:"13px 0",fontSize:14}}>
@@ -875,14 +1017,30 @@
       {key:"tables",      label:"Tables (comma separated)",full:true},
       {key:"managerPin",  label:"Manager PIN",             type:"password"},
       {key:"currency",    label:"Currency Symbol"},
-      {key:"githubOwner", label:"GitHub Owner"},
-      {key:"githubRepo",  label:"GitHub Repo"},
-      {key:"githubToken", label:"GitHub Token",            type:"password"},
+      {key:"githubOwner", label:"GitHub Owner (username)"},
+      {key:"githubRepo",  label:"GitHub Repo name"},
+      {key:"githubToken", label:"GitHub Token (fine-grained PAT)",  type:"password", full:true},
     ];
 
     return (
       <div>
         <SectionTitle>Settings</SectionTitle>
+
+        {/* GitHub token how-to */}
+        <Card style={{padding:"14px 16px",marginBottom:16,borderLeft:"4px solid #C8873A"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#C8873A",marginBottom:6}}>🔑 How to get a GitHub Token for image uploads</div>
+          <ol style={{fontSize:12,color:"#555",lineHeight:1.8,paddingLeft:18}}>
+            <li>Go to <b>github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens</b></li>
+            <li>Click <b>Generate new token</b></li>
+            <li>Under <b>Repository access</b> select <b>Only select repositories</b> → pick <b>bar-pos</b></li>
+            <li>Under <b>Permissions → Repository permissions</b> set <b>Contents → Read and Write</b></li>
+            <li>Click <b>Generate token</b>, copy it, and paste it in the field below</li>
+          </ol>
+          <div style={{fontSize:11,color:"#888",marginTop:6}}>
+            Images are stored as <code>images/ITEM-ID.jpg</code> in your repo, matching the Sheet ID exactly.
+          </div>
+        </Card>
+
         <Card style={{padding:"20px 16px"}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             {fields.map(f => (
@@ -917,13 +1075,12 @@
     ];
     return (
       <div style={{display:"flex",height:"calc(100vh - 54px)"}}>
-        {/* Sidebar */}
         <div style={{width:56,background:"#FFFFFF",borderRight:"1px solid #EBEBF5",display:"flex",flexDirection:"column",gap:2,paddingTop:8,flexShrink:0}}>
           {tabs.map(t => (
             <button key={t.id} onClick={()=>setTab(t.id)} title={t.label} style={{
               background: tab===t.id ? "#FFF3E6" : "transparent",
               borderLeft: tab===t.id ? "3px solid #C8873A" : "3px solid transparent",
-              border:"none",borderRight:"none",
+              border:"none",
               padding:"12px 0", fontSize:18, textAlign:"center",
               cursor:"pointer",
             }}>
@@ -931,7 +1088,6 @@
             </button>
           ))}
         </div>
-        {/* Content */}
         <div style={{flex:1,overflowY:"auto",padding:"16px"}}>
           {tab==="overview"  && <OverviewTab  orders={orders} bills={bills} inventory={inventory} />}
           {tab==="inventory" && <InventoryTab inventory={inventory} setInventory={setInventory} settings={settings} toast={toast} />}
@@ -944,6 +1100,8 @@
   }
 
   // ── ROOT APP ──────────────────────────────────────────────────────
+  // CHANGE: Server mode (tables/orders) is NEVER PIN-locked.
+  // Only the Manager dashboard requires PIN.
   function App() {
     const [mode, setMode] = useState("server");
     const [pinUnlocked, setPinUnlocked] = useState(false);
@@ -995,6 +1153,7 @@
       load();
     }, []);
 
+    // Switching back to server always resets the manager dashboard lock
     const handleModeChange = m => {
       setMode(m);
       if (m==="server") setPinUnlocked(false);
@@ -1005,14 +1164,20 @@
     return (
       <div style={{background:"#F7F8FA",minHeight:"100vh",color:"#1A1A2E"}}>
         <TopBar mode={mode} setMode={handleModeChange} barName={settings.barName} />
-        {mode==="server"
-          ? <ServerApp
-              inventory={inventory} orders={orders} setOrders={setOrders}
-              bills={bills} setBills={setBills} tables={tables}
-              getTableStatus={getTableStatus} settings={settings}
-              toast={toast} refreshInventory={refreshInventory}
-            />
-          : pinUnlocked
+
+        {/* Server (order-taking) mode — NO PIN required */}
+        {mode==="server" && (
+          <ServerApp
+            inventory={inventory} orders={orders} setOrders={setOrders}
+            bills={bills} setBills={setBills} tables={tables}
+            getTableStatus={getTableStatus} settings={settings}
+            toast={toast} refreshInventory={refreshInventory}
+          />
+        )}
+
+        {/* Manager dashboard — PIN required */}
+        {mode==="dashboard" && (
+          pinUnlocked
             ? <Dashboard
                 inventory={inventory} setInventory={setInventory}
                 orders={orders} bills={bills} setBills={setBills}
@@ -1021,7 +1186,8 @@
                 toast={toast} refreshInventory={refreshInventory}
               />
             : <PinScreen onUnlock={() => setPinUnlocked(true)} toast={toast} />
-        }
+        )}
+
         <ToastContainer toasts={toasts} />
       </div>
     );
