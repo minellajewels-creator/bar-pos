@@ -47,7 +47,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useCallback, useMemo } = React;
+    const { useState, useCallback, useMemo, useEffect } = React;
 
     // ── CONFIG ── change these before deploying ──────────────────────────────
     const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz9ZQKuZVL6knaHmTOa4rMgs_GeQ0VsQLnLtPn3nCfK6H_8CjohdeD7oDygDR0JXKon/exec";
@@ -804,6 +804,15 @@
       );
     }
 
+    function mapInvRow(r) {
+  return {
+    id: r["Item ID"], name: r["Item Name"], category: r["Category"],
+    imageUrl: r["Image URL"], price30ml: +r["Price 30ml"],
+    priceBottle: +r["Price Bottle"], mlPerBottle: +r["ML per Bottle"],
+    qty: +r["Qty Available"], lowStockThreshold: +r["Low Stock Threshold"],
+    active: r["Active"] !== false && r["Active"] !== "FALSE",
+  };
+}
     // ── ROOT APP ─────────────────────────────────────────────────────────────
     function App() {
       const [mode, setMode] = useState("server");
@@ -828,7 +837,29 @@
         setMode(m);
         if (m==="server") setPinUnlocked(false);
       };
+useEffect(() => {
+  // Load inventory
+  fetch(`${APPS_SCRIPT_URL}?action=getInventory`)
+    .then(r => r.json())
+    .then(res => { if (res.success && res.data.length) setInventory(res.data.map(mapInvRow)); });
 
+  // Load settings
+  fetch(`${APPS_SCRIPT_URL}?action=getSettings`)
+    .then(r => r.json())
+    .then(res => { if (res.success && Object.keys(res.data).length) setSettings({...MOCK_SETTINGS,...res.data}); });
+
+  // Load orders
+  fetch(`${APPS_SCRIPT_URL}?action=getOrders`)
+    .then(r => r.json())
+    .then(res => { if (res.success) setOrders(res.data); });
+
+  // Load bills
+  fetch(`${APPS_SCRIPT_URL}?action=getBills`)
+    .then(r => r.json())
+    .then(res => { if (res.success) setBills(res.data); });
+}, []);
+
+      
       return (
         <div style={{background:"#0A0A0F",minHeight:"100vh",color:"#E8E8F0"}}>
           <TopBar mode={mode} setMode={handleModeChange} />
