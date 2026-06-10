@@ -1118,11 +1118,10 @@
     );
 
     const getTableStatus = useCallback(table => {
-      const rows = orders.filter(o => o.tableNumber===table && o.status!=="cancelled");
-      if (!rows.length) return "free";
-      if (rows.some(o => o.status==="billed")) return "billed";
-      return "occupied";
-    }, [orders]);
+  const rows = orders.filter(o => o.tableNumber===table && o.status==="open");
+  if (!rows.length) return "free";
+  return "occupied";
+}, [orders]);
 
     const refreshInventory = async () => {
       try {
