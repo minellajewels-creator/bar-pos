@@ -54,7 +54,24 @@
     const GST_RATE = 0.18;
 
     // ── MOCK DATA (remove once Apps Script is wired up) ──────────────────────
-    
+    const MOCK_SETTINGS = {
+  barName: "VELVET BARREL",
+  barAddress: "123 MG Road, Coimbatore, Tamil Nadu 641001",
+  gstNumber: "33AAAAA0000A1Z5",
+  gstRate: 18,
+  tables: "T1,T2,T3,T4,T5,T6,T7,T8",
+  currency: "₹",
+  githubOwner: "",
+  githubRepo: "",
+  githubToken: "",
+  logoPath: "",
+};
+
+const MOCK_INVENTORY = [
+  { id:"LQ-0001", name:"Jack Daniel's", category:"Liquor", imageUrl:"", price30ml:120, priceBottle:3200, mlPerBottle:750, qty:5, lowStockThreshold:2, active:true },
+  { id:"LQ-0002", name:"Old Monk Rum",  category:"Liquor", imageUrl:"", price30ml:60,  priceBottle:1200, mlPerBottle:750, qty:3, lowStockThreshold:2, active:true },
+  { id:"BV-0001", name:"Coca-Cola",     category:"Beverage", imageUrl:"", price30ml:0, priceBottle:40, mlPerBottle:300, qty:30, lowStockThreshold:5, active:true },
+];
     // ── GITHUB IMAGE UPLOAD ──────────────────────────────────────────────────
     function fileToBase64(file) {
       return new Promise((res, rej) => {
