@@ -1,899 +1,1034 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>Velvet Barrel POS</title>
-  <meta name="description" content="Bar Point-of-Sale System" />
-
-  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-
-  <!-- React -->
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-
-  <!-- Babel Standalone (transpiles JSX in-browser) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!-- jsPDF (bill PDF generation) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root { height: 100%; }
-    body { background: #0A0A0F; color: #E8E8F0; font-family: 'Inter', sans-serif; }
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: #0A0A0F; }
-    ::-webkit-scrollbar-thumb { background: #2A2A3E; border-radius: 4px; }
-    @keyframes slideIn {
-      from { transform: translateX(40px); opacity: 0; }
-      to   { transform: translateX(0);    opacity: 1; }
+    body {
+      background: #F7F8FA;
+      color: #1A1A2E;
+      font-family: 'Inter', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-track { background: #F0F0F5; }
+    ::-webkit-scrollbar-thumb { background: #C8C8D8; border-radius: 4px; }
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; } to { opacity: 1; }
     }
     input, select, textarea {
-      background: #13131A; border: 1px solid #2A2A3E;
-      color: #E8E8F0; border-radius: 8px; padding: 8px 12px;
-      font-family: inherit; font-size: 13px; outline: none;
+      background: #FFFFFF;
+      border: 1.5px solid #E0E0EE;
+      color: #1A1A2E;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
       width: 100%;
+      transition: border-color 0.2s;
     }
-    input:focus, select:focus, textarea:focus { border-color: #F5A623; }
-    button { cursor: pointer; font-family: inherit; }
+    input:focus, select:focus, textarea:focus { border-color: #C8873A; }
+    button { cursor: pointer; font-family: inherit; transition: opacity 0.15s, transform 0.1s; }
+    button:active { transform: scale(0.97); }
   </style>
 </head>
 <body>
-  <div id="root"></div>
+<div id="root"></div>
 
-  <script type="text/babel">
-    const { useState, useCallback, useMemo, useEffect } = React;
+<script type="text/babel">
+  const { useState, useCallback, useMemo, useEffect } = React;
 
-    // ── CONFIG ── change these before deploying ──────────────────────────────
-    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz9ZQKuZVL6knaHmTOa4rMgs_GeQ0VsQLnLtPn3nCfK6H_8CjohdeD7oDygDR0JXKon/exec";
-    const GST_RATE = 0.18;
+  const GAS = "https://script.google.com/macros/s/AKfycbz9ZQKuZVL6knaHmTOa4rMgs_GeQ0VsQLnLtPn3nCfK6H_8CjohdeD7oDygDR0JXKon/exec";
+  const GST_RATE = 0.18;
 
-    // ── MOCK DATA (remove once Apps Script is wired up) ──────────────────────
-    const MOCK_SETTINGS = {
-  barName: "VELVET BARREL",
-  barAddress: "123 MG Road, Coimbatore, Tamil Nadu 641001",
-  gstNumber: "33AAAAA0000A1Z5",
-  gstRate: 18,
-  tables: "T1,T2,T3,T4,T5,T6,T7,T8",
-  currency: "₹",
-  githubOwner: "",
-  githubRepo: "",
-  githubToken: "",
-  logoPath: "",
-};
+  // ── MINIMAL FALLBACK (overwritten by GAS on load) ─────────────────
+  const DEFAULT_SETTINGS = {
+    barName:"VELVET BARREL", barAddress:"", gstNumber:"", gstRate:18,
+    tables:"T1,T2,T3,T4,T5,T6,T7,T8", currency:"₹",
+    githubOwner:"", githubRepo:"", githubToken:"", logoPath:"",
+  };
 
-const MOCK_INVENTORY = [
-  { id:"LQ-0001", name:"Jack Daniel's", category:"Liquor", imageUrl:"", price30ml:120, priceBottle:3200, mlPerBottle:750, qty:5, lowStockThreshold:2, active:true },
-  { id:"LQ-0002", name:"Old Monk Rum",  category:"Liquor", imageUrl:"", price30ml:60,  priceBottle:1200, mlPerBottle:750, qty:3, lowStockThreshold:2, active:true },
-  { id:"BV-0001", name:"Coca-Cola",     category:"Beverage", imageUrl:"", price30ml:0, priceBottle:40, mlPerBottle:300, qty:30, lowStockThreshold:5, active:true },
-];
-    // ── GITHUB IMAGE UPLOAD ──────────────────────────────────────────────────
-    function fileToBase64(file) {
-      return new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(r.result);
-        r.onerror = rej;
-        r.readAsDataURL(file);
-      });
-    }
-    async function uploadToGithub(file, itemId, settings) {
-      const { githubOwner, githubRepo, githubToken } = settings;
-      const base64 = await fileToBase64(file);
-      const path = `images/${itemId}.jpg`;
-      const res = await fetch(
-        `https://api.github.com/repos/${githubOwner}/${githubRepo}/contents/${path}`,
-        {
-          method: "PUT",
-          headers: { Authorization: `token ${githubToken}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ message: `Add image for ${itemId}`, content: base64.split(",")[1] }),
-        }
-      );
-      const json = await res.json();
-      return json.content?.download_url || "";
-    }
+  // ── GAS FETCH HELPER (all via GET) ────────────────────────────────
+  async function gasGet(action, body = null) {
+    let url = `${GAS}?action=${action}`;
+    if (body) url += `&body=${encodeURIComponent(JSON.stringify(body))}`;
+    const res = await fetch(url);
+    return res.json();
+  }
 
-    // ── PDF BILL ─────────────────────────────────────────────────────────────
-    function generateBillPDF(bill, settings) {
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ unit:"mm", format:"a4" });
-      const W = 210, M = 15;
-      let y = 20;
+  // ── ROW MAPPERS ───────────────────────────────────────────────────
+  function mapInvRow(r) {
+    return {
+      id: r["Item ID"], name: r["Item Name"], category: r["Category"],
+      imageUrl: r["Image URL"] || "",
+      price30ml: +r["Price 30ml"] || 0,
+      priceBottle: +r["Price Bottle"] || 0,
+      mlPerBottle: +r["ML per Bottle"] || 750,
+      qty: +r["Qty Available"] || 0,
+      lowStockThreshold: +r["Low Stock Threshold"] || 2,
+      active: r["Active"] !== false && r["Active"] !== "FALSE" && r["Active"] !== false,
+    };
+  }
+  function mapOrderRow(r) {
+    return {
+      orderId: r["Order ID"], tableNumber: r["Table Number"],
+      customerName: r["Customer Name"], customerPhone: r["Customer Phone"],
+      itemId: r["Item ID"], itemName: r["Item Name"],
+      qty: +r["Qty"], unit: r["Unit"],
+      unitPrice: +r["Unit Price"], lineTotal: +r["Line Total"],
+      status: r["Status"], date: r["Date"], time: r["Time"],
+    };
+  }
+  function mapBillRow(r) {
+    let items = [];
+    try { items = typeof r["Items JSON"] === "string" ? JSON.parse(r["Items JSON"]) : (r["Items JSON"] || []); }
+    catch(e) { items = []; }
+    return {
+      billId: r["Bill ID"], tableNumber: r["Table Number"],
+      customerName: r["Customer Name"], customerPhone: r["Customer Phone"],
+      subtotal: +r["Subtotal"], gstAmount: +r["GST Amount"], total: +r["Total"],
+      dateTime: r["Date Time"], items,
+    };
+  }
 
-      doc.setFillColor(10,10,15);
-      doc.rect(0,0,W,40,"F");
-      doc.setTextColor(245,166,35);
-      doc.setFontSize(22); doc.setFont("helvetica","bold");
-      doc.text(settings.barName||"THE BAR", W/2, 18, { align:"center" });
-      doc.setFontSize(9); doc.setTextColor(200,200,200);
-      doc.text(settings.barAddress||"", W/2, 25, { align:"center" });
-      doc.text(`GSTIN: ${settings.gstNumber||""}`, W/2, 31, { align:"center" });
+  // ── GITHUB IMAGE UPLOAD ───────────────────────────────────────────
+  function fileToBase64(file) {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+  }
+  async function uploadToGithub(file, itemId, settings) {
+    const { githubOwner, githubRepo, githubToken } = settings;
+    if (!githubOwner || !githubRepo || !githubToken) return "";
+    const base64 = await fileToBase64(file);
+    const path = `images/${itemId}.jpg`;
+    const res = await fetch(
+      `https://api.github.com/repos/${githubOwner}/${githubRepo}/contents/${path}`,
+      {
+        method: "PUT",
+        headers: { Authorization: `token ${githubToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ message: `Add image for ${itemId}`, content: base64.split(",")[1] }),
+      }
+    );
+    const json = await res.json();
+    return json.content?.download_url || "";
+  }
 
-      y = 50;
-      doc.setTextColor(20,20,20); doc.setFontSize(10); doc.setFont("helvetica","normal");
-      doc.text(`Bill No: ${bill.billId}`, M, y);
-      doc.text(`Date: ${bill.dateTime}`, W-M, y, { align:"right" });
+  // ── PDF BILL ──────────────────────────────────────────────────────
+  function generateBillPDF(bill, settings) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:"mm", format:"a4" });
+    const W = 210, M = 15;
+    let y = 20;
+    doc.setFillColor(26,26,46);
+    doc.rect(0,0,W,42,"F");
+    doc.setTextColor(200,135,58);
+    doc.setFontSize(22); doc.setFont("helvetica","bold");
+    doc.text(settings.barName||"THE BAR", W/2, 18, {align:"center"});
+    doc.setFontSize(9); doc.setTextColor(200,200,200);
+    doc.text(settings.barAddress||"", W/2, 26, {align:"center"});
+    doc.text(`GSTIN: ${settings.gstNumber||""}`, W/2, 32, {align:"center"});
+    y = 52;
+    doc.setTextColor(20,20,20); doc.setFontSize(10); doc.setFont("helvetica","normal");
+    doc.text(`Bill No: ${bill.billId}`, M, y);
+    doc.text(`Date: ${bill.dateTime}`, W-M, y, {align:"right"}); y+=6;
+    doc.text(`Table: ${bill.tableNumber}`, M, y);
+    doc.text(`Customer: ${bill.customerName}`, W-M, y, {align:"right"}); y+=4;
+    doc.setDrawColor(200,200,200); doc.line(M,y,W-M,y); y+=6;
+    doc.setFont("helvetica","bold"); doc.setFontSize(9);
+    doc.text("ITEM",M,y); doc.text("QTY",110,y,{align:"right"});
+    doc.text("RATE",140,y,{align:"right"}); doc.text("AMOUNT",W-M,y,{align:"right"});
+    y+=4; doc.line(M,y,W-M,y); y+=5;
+    doc.setFont("helvetica","normal");
+    bill.items.forEach(item => {
+      doc.text(String(item.name),M,y);
+      doc.text(`${item.qty} ${item.unit}`,110,y,{align:"right"});
+      doc.text(`₹${(+item.rate||+item.unitPrice||0).toFixed(2)}`,140,y,{align:"right"});
+      doc.text(`₹${(+item.lineTotal||0).toFixed(2)}`,W-M,y,{align:"right"});
       y+=6;
-      doc.text(`Table: ${bill.tableNumber}`, M, y);
-      doc.text(`Customer: ${bill.customerName}`, W-M, y, { align:"right" });
-      y+=4;
-      doc.setDrawColor(200,200,200); doc.line(M,y,W-M,y); y+=6;
+    });
+    doc.line(M,y,W-M,y); y+=6;
+    doc.text("Subtotal",140,y,{align:"right"});
+    doc.text(`₹${bill.subtotal.toFixed(2)}`,W-M,y,{align:"right"}); y+=5;
+    doc.text("CGST (9%)",140,y,{align:"right"});
+    doc.text(`₹${(bill.gstAmount/2).toFixed(2)}`,W-M,y,{align:"right"}); y+=5;
+    doc.text("SGST (9%)",140,y,{align:"right"});
+    doc.text(`₹${(bill.gstAmount/2).toFixed(2)}`,W-M,y,{align:"right"}); y+=4;
+    doc.line(M,y,W-M,y); y+=6;
+    doc.setFont("helvetica","bold"); doc.setFontSize(12);
+    doc.text("GRAND TOTAL",140,y,{align:"right"});
+    doc.text(`₹${bill.total.toFixed(2)}`,W-M,y,{align:"right"}); y+=10;
+    doc.setFont("helvetica","italic"); doc.setFontSize(9); doc.setTextColor(120,120,120);
+    doc.text("Thank you for visiting! Please drink responsibly.", W/2, y, {align:"center"});
+    doc.save(`Bill-${bill.billId}.pdf`);
+  }
 
-      doc.setFont("helvetica","bold"); doc.setFontSize(9);
-      doc.text("ITEM",M,y); doc.text("QTY",110,y,{align:"right"});
-      doc.text("RATE",140,y,{align:"right"}); doc.text("AMOUNT",W-M,y,{align:"right"});
-      y+=4; doc.line(M,y,W-M,y); y+=5;
+  // ── TOAST ─────────────────────────────────────────────────────────
+  function useToast() {
+    const [toasts, setToasts] = useState([]);
+    const toast = useCallback((msg, type="info") => {
+      const id = Date.now();
+      setToasts(p => [...p, {id, msg, type}]);
+      setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3500);
+    }, []);
+    return { toasts, toast };
+  }
+  function ToastContainer({ toasts }) {
+    const colors = { info:"#C8873A", success:"#27AE60", error:"#E74C3C" };
+    return (
+      <div style={{position:"fixed",bottom:24,right:16,left:16,zIndex:9999,display:"flex",flexDirection:"column",gap:8,pointerEvents:"none"}}>
+        {toasts.map(t => (
+          <div key={t.id} style={{
+            background:"#FFFFFF", borderLeft:`4px solid ${colors[t.type]}`,
+            color:"#1A1A2E", padding:"12px 16px", borderRadius:10,
+            fontSize:13, boxShadow:"0 4px 20px rgba(0,0,0,0.12)",
+            animation:"slideUp 0.25s ease",
+          }}>{t.msg}</div>
+        ))}
+      </div>
+    );
+  }
 
-      doc.setFont("helvetica","normal");
-      bill.items.forEach(item => {
-        doc.text(item.name,M,y);
-        doc.text(`${item.qty} ${item.unit}`,110,y,{align:"right"});
-        doc.text(`₹${item.rate.toFixed(2)}`,140,y,{align:"right"});
-        doc.text(`₹${item.lineTotal.toFixed(2)}`,W-M,y,{align:"right"});
-        y+=6;
-      });
+  // ── SHARED UI ─────────────────────────────────────────────────────
+  function Modal({ title, children, onClose }) {
+    return (
+      <div style={{position:"fixed",inset:0,background:"rgba(26,26,46,0.6)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:"0"}}>
+        <div style={{background:"#FFFFFF",borderRadius:"20px 20px 0 0",padding:"24px 20px 32px",width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto",animation:"slideUp 0.25s ease"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+            <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#1A1A2E",letterSpacing:1}}>{title}</div>
+            <button onClick={onClose} style={{background:"#F0F0F5",border:"none",color:"#666",width:32,height:32,borderRadius:"50%",fontSize:18,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+          </div>
+          {children}
+        </div>
+      </div>
+    );
+  }
+  function Card({ children, style={} }) {
+    return <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #EBEBF5",boxShadow:"0 2px 8px rgba(0,0,0,0.04)",...style}}>{children}</div>;
+  }
+  function SectionTitle({ children }) {
+    return <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#1A1A2E",letterSpacing:2,marginBottom:14}}>{children}</div>;
+  }
+  function Label({ children }) {
+    return <div style={{fontSize:11,color:"#888",marginBottom:5,letterSpacing:0.5,textTransform:"uppercase",fontWeight:600}}>{children}</div>;
+  }
+  function FieldWrap({ children, full }) {
+    return <div style={full ? {gridColumn:"1/-1"} : {}}>{children}</div>;
+  }
+  function Btn({ children, onClick, variant="primary", disabled, style={} }) {
+    const styles = {
+      primary:   { background:"#C8873A", color:"#FFFFFF", border:"none" },
+      secondary: { background:"#F0F0F5", color:"#1A1A2E", border:"none" },
+      danger:    { background:"transparent", color:"#E74C3C", border:"1px solid #F5C0BB" },
+    };
+    return (
+      <button onClick={onClick} disabled={disabled} style={{
+        ...styles[variant], borderRadius:10, padding:"11px 18px",
+        fontSize:13, fontWeight:700, opacity: disabled ? 0.5 : 1,
+        letterSpacing:0.3, ...style,
+      }}>{children}</button>
+    );
+  }
 
-      doc.line(M,y,W-M,y); y+=6;
-      doc.text("Subtotal",140,y,{align:"right"});
-      doc.text(`₹${bill.subtotal.toFixed(2)}`,W-M,y,{align:"right"}); y+=5;
-      doc.text("CGST (9%)",140,y,{align:"right"});
-      doc.text(`₹${(bill.gstAmount/2).toFixed(2)}`,W-M,y,{align:"right"}); y+=5;
-      doc.text("SGST (9%)",140,y,{align:"right"});
-      doc.text(`₹${(bill.gstAmount/2).toFixed(2)}`,W-M,y,{align:"right"}); y+=4;
-      doc.line(M,y,W-M,y); y+=6;
-      doc.setFont("helvetica","bold"); doc.setFontSize(12);
-      doc.text("GRAND TOTAL",140,y,{align:"right"});
-      doc.text(`₹${bill.total.toFixed(2)}`,W-M,y,{align:"right"}); y+=10;
-      doc.setFont("helvetica","italic"); doc.setFontSize(9); doc.setTextColor(100,100,100);
-      doc.text("Thank you for visiting! Please drink responsibly.", W/2, y, {align:"center"});
-      doc.save(`Bill-${bill.billId}.pdf`);
-    }
+  // ── LOADING SCREEN ────────────────────────────────────────────────
+  function LoadingScreen() {
+    return (
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F7F8FA",gap:16}}>
+        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:32,color:"#C8873A",letterSpacing:3}}>VELVET BARREL</div>
+        <div style={{color:"#888",fontSize:13}}>Loading...</div>
+      </div>
+    );
+  }
 
-    // ── TOAST HOOK ───────────────────────────────────────────────────────────
-    function useToast() {
-      const [toasts, setToasts] = useState([]);
-      const toast = useCallback((msg, type="info") => {
-        const id = Date.now();
-        setToasts(p => [...p, { id, msg, type }]);
-        setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
-      }, []);
-      return { toasts, toast };
-    }
-
-    function ToastContainer({ toasts }) {
-      const colors = { info:"#F5A623", success:"#3DD410", error:"#E85D5D" };
-      return (
-        <div style={{position:"fixed",bottom:24,right:24,zIndex:9999,display:"flex",flexDirection:"column",gap:8}}>
-          {toasts.map(t => (
-            <div key={t.id} style={{
-              background:"#1E1E2E", borderLeft:`3px solid ${colors[t.type]}`,
-              color:"#E8E8F0", padding:"10px 16px", borderRadius:8,
-              fontSize:13, maxWidth:320, animation:"slideIn 0.2s ease",
-            }}>{t.msg}</div>
+  // ── TOP BAR ───────────────────────────────────────────────────────
+  function TopBar({ mode, setMode, barName }) {
+    return (
+      <div style={{background:"#FFFFFF",borderBottom:"1px solid #EBEBF5",padding:"0 16px",height:54,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 8px rgba(0,0,0,0.06)"}}>
+        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#C8873A",letterSpacing:2}}>{barName||"VELVET BARREL"}</div>
+        <div style={{display:"flex",gap:6}}>
+          {["server","dashboard"].map(m => (
+            <button key={m} onClick={() => setMode(m)} style={{
+              background: mode===m ? "#C8873A" : "#F0F0F5",
+              color: mode===m ? "#FFFFFF" : "#888",
+              border:"none", borderRadius:8, padding:"6px 14px",
+              fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:1,
+            }}>
+              {m==="server" ? "🍸 Order" : "📊 Mgr"}
+            </button>
           ))}
         </div>
-      );
-    }
+      </div>
+    );
+  }
 
-    // ── SHARED UI ────────────────────────────────────────────────────────────
-    function Modal({ title, children, onClose }) {
-      return (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#13131A",border:"1px solid #2A2A3E",borderRadius:16,padding:24,width:"100%",maxWidth:480,maxHeight:"85vh",overflowY:"auto"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-              <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#F5A623",letterSpacing:1}}>{title}</div>
-              <button onClick={onClose} style={{background:"transparent",border:"none",color:"#8A8A9A",fontSize:22,lineHeight:1}}>×</button>
-            </div>
-            {children}
-          </div>
-        </div>
-      );
-    }
-    function SectionTitle({ children }) {
-      return <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:22,color:"#F5A623",letterSpacing:2,marginBottom:16}}>{children}</div>;
-    }
-    function Label({ children }) {
-      return <div style={{fontSize:11,color:"#8A8A9A",marginBottom:4,letterSpacing:0.5,textTransform:"uppercase"}}>{children}</div>;
-    }
-    function FieldWrap({ children, full }) {
-      return <div style={full ? {gridColumn:"1/-1"} : {}}>{children}</div>;
-    }
+  // ── PIN SCREEN ────────────────────────────────────────────────────
+  function PinScreen({ onUnlock, toast }) {
+    const [pin, setPin] = useState("");
+    const [loading, setLoading] = useState(false);
 
-    // ── TOP BAR ──────────────────────────────────────────────────────────────
-    function TopBar({ mode, setMode }) {
-      return (
-        <div style={{background:"#13131A",borderBottom:"1px solid #2A2A3E",padding:"0 20px",height:56,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
-          <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:24,color:"#F5A623",letterSpacing:2}}>VELVET BARREL POS</div>
-          <div style={{display:"flex",gap:8}}>
-            {["server","dashboard"].map(m => (
-              <button key={m} onClick={() => setMode(m)} style={{
-                background: mode===m ? "#F5A623" : "transparent",
-                color: mode===m ? "#0A0A0F" : "#8A8A9A",
-                border:`1px solid ${mode===m ? "#F5A623" : "#2A2A3E"}`,
-                borderRadius:8, padding:"6px 16px", fontSize:12, fontWeight:600,
-                textTransform:"uppercase", letterSpacing:1,
-              }}>
-                {m==="server" ? "🍸 Server" : "📊 Dashboard"}
-              </button>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    // ── PIN SCREEN ───────────────────────────────────────────────────────────
-    function PinScreen({ pinInput, setPinInput, onUnlock }) {
-      return (
-        <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"calc(100vh - 56px)"}}>
-          <div style={{background:"#13131A",border:"1px solid #2A2A3E",borderRadius:16,padding:40,width:320,textAlign:"center"}}>
-            <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:32,color:"#F5A623",marginBottom:8}}>MANAGER ACCESS</div>
-            <p style={{color:"#8A8A9A",fontSize:13,marginBottom:24}}>Enter PIN to unlock dashboard</p>
-            <input type="password" value={pinInput}
-              onChange={e => setPinInput(e.target.value)}
-              onKeyDown={e => e.key==="Enter" && onUnlock()}
-              placeholder="••••" maxLength={6}
-              style={{textAlign:"center",fontSize:24,letterSpacing:8,marginBottom:16}} />
-            <button onClick={onUnlock} style={{width:"100%",background:"#F5A623",color:"#0A0A0F",border:"none",borderRadius:8,padding:"12px 0",fontWeight:700,fontSize:14}}>
-              UNLOCK
-            </button>
-            <p style={{color:"#333",fontSize:11,marginTop:12}}>Default PIN: 1234</p>
-          </div>
-        </div>
-      );
-    }
-
-    // ── MENU ITEM CARD ───────────────────────────────────────────────────────
-    function MenuItemCard({ item, onAdd }) {
-      const [qty, setQty] = useState(1);
-      const [unit, setUnit] = useState(item.category==="Liquor" ? "small" : "bottle");
-      const isLow = item.qty <= item.lowStockThreshold;
-      return (
-        <div style={{background:"#1E1E2E",borderRadius:10,padding:"10px 10px 8px",border:`1px solid ${isLow?"#E85D5D44":"#2A2A3E"}`,display:"flex",flexDirection:"column",gap:6}}>
-          <div style={{background:"#2A2A3E",borderRadius:6,height:70,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>
-            {item.imageUrl
-              ? <img src={item.imageUrl} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:6}} />
-              : item.category==="Liquor" ? "🥃" : "🥤"
-            }
-          </div>
-          <div style={{fontSize:12,fontWeight:600,lineHeight:1.3}}>{item.name}</div>
-          <div style={{fontSize:11,color:"#8A8A9A"}}>{item.category}</div>
-          {isLow && <div style={{fontSize:10,color:"#E85D5D",fontWeight:600}}>⚠ LOW STOCK</div>}
-          <div style={{fontSize:12,color:"#F5A623",fontFamily:"'JetBrains Mono',monospace"}}>
-            {item.category==="Liquor" ? `₹${item.price30ml}/30ml` : `₹${item.priceBottle}/unit`}
-          </div>
-          {item.category==="Liquor" && (
-            <select value={unit} onChange={e => setUnit(e.target.value)} style={{fontSize:11,padding:"4px 6px"}}>
-              <option value="small">Small (30ml) ₹{item.price30ml}</option>
-              <option value="large">Large (60ml) ₹{item.price30ml*2}</option>
-            </select>
-          )}
-          <div style={{display:"flex",gap:4,alignItems:"center"}}>
-            <button onClick={() => setQty(q => Math.max(1,q-1))} style={{background:"#2A2A3E",border:"none",color:"#E8E8F0",width:24,height:24,borderRadius:5,fontSize:14}}>−</button>
-            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,flex:1,textAlign:"center"}}>{qty}</span>
-            <button onClick={() => setQty(q => q+1)} style={{background:"#2A2A3E",border:"none",color:"#E8E8F0",width:24,height:24,borderRadius:5,fontSize:14}}>+</button>
-            <button onClick={() => { onAdd(item,qty,unit); setQty(1); }} style={{background:"#F5A623",border:"none",color:"#0A0A0F",padding:"4px 10px",borderRadius:6,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>ADD</button>
-          </div>
-        </div>
-      );
-    }
-
-    // ── SERVER APP ───────────────────────────────────────────────────────────
-    function ServerApp({ inventory, orders, setOrders, bills, setBills, tables, getTableStatus, settings, toast }) {
-      const [screen, setScreen] = useState("tables");
-      const [activeTable, setActiveTable] = useState(null);
-      const [customerInfo, setCustomerInfo] = useState({ name:"", phone:"" });
-      const [cart, setCart] = useState([]);
-      const [search, setSearch] = useState("");
-      const [showCustomerModal, setShowCustomerModal] = useState(false);
-      const [showBillConfirm, setShowBillConfirm] = useState(false);
-
-      const openTable = table => {
-        const status = getTableStatus(table);
-        if (status==="billed") { toast("Table is billed – awaiting payment","error"); return; }
-        setActiveTable(table);
-        const existing = orders.filter(o => o.tableNumber===table && o.status==="open");
-        if (!existing.length) {
-          setShowCustomerModal(true); setCart([]);
+    const handleUnlock = async () => {
+      if (!pin) return;
+      setLoading(true);
+      try {
+        const res = await gasGet("verifyPin", { pin });
+        if (res.success && res.data?.valid) {
+          onUnlock();
         } else {
-          setCustomerInfo({ name:existing[0].customerName, phone:existing[0].customerPhone });
-          // rebuild cart from held orders
-          const cartMap = {};
-          existing.forEach(o => {
-            const key = `${o.itemId}-${o.unit}`;
-            if (cartMap[key]) { cartMap[key].qty += o.qty; cartMap[key].lineTotal += o.lineTotal; }
-            else cartMap[key] = { key, itemId:o.itemId, name:o.itemName, qty:o.qty, unit:o.unit, unitPrice:o.unitPrice, lineTotal:o.lineTotal, category:o.category };
-          });
-          setCart(Object.values(cartMap));
+          toast("Wrong PIN","error");
+          setPin("");
         }
-        setScreen("order");
-      };
+      } catch(e) {
+        toast("Connection error","error");
+      }
+      setLoading(false);
+    };
 
-      const addToCart = (item, qty, unit) => {
-        const price = item.category==="Liquor" ? item.price30ml*(unit==="small"?1:2) : item.priceBottle;
-        const lineTotal = price * qty;
-        const key = `${item.id}-${unit}`;
-        setCart(prev => {
-          const ex = prev.find(c => c.key===key);
-          if (ex) return prev.map(c => c.key===key ? {...c, qty:c.qty+qty, lineTotal:(c.qty+qty)*price} : c);
-          return [...prev, { key, itemId:item.id, name:item.name, qty, unit, unitPrice:price, lineTotal, category:item.category }];
+    return (
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"calc(100vh - 54px)",padding:20}}>
+        <Card style={{padding:36,width:"100%",maxWidth:340,textAlign:"center"}}>
+          <div style={{fontSize:40,marginBottom:8}}>🔐</div>
+          <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:28,color:"#1A1A2E",marginBottom:6}}>MANAGER ACCESS</div>
+          <p style={{color:"#888",fontSize:13,marginBottom:24}}>Enter your PIN to continue</p>
+          <input type="password" value={pin}
+            onChange={e => setPin(e.target.value)}
+            onKeyDown={e => e.key==="Enter" && handleUnlock()}
+            placeholder="••••••" maxLength={6} inputMode="numeric"
+            style={{textAlign:"center",fontSize:28,letterSpacing:12,marginBottom:16,background:"#F7F8FA"}} />
+          <Btn onClick={handleUnlock} disabled={loading} style={{width:"100%",padding:"14px 0",fontSize:14}}>
+            {loading ? "Verifying..." : "UNLOCK"}
+          </Btn>
+        </Card>
+      </div>
+    );
+  }
+
+  // ── MENU ITEM CARD (mobile optimised) ─────────────────────────────
+  function MenuItemCard({ item, onAdd }) {
+    const [qty, setQty] = useState(1);
+    const [unit, setUnit] = useState(item.category==="Liquor" ? "small" : "bottle");
+    const isLow = item.qty <= item.lowStockThreshold;
+    const price = item.category==="Liquor" ? item.price30ml*(unit==="small"?1:2) : item.priceBottle;
+
+    return (
+      <Card style={{padding:12,border:isLow?"1.5px solid #F5C0BB":"1px solid #EBEBF5",display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{background:"#F7F8FA",borderRadius:8,height:72,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,overflow:"hidden"}}>
+          {item.imageUrl
+            ? <img src={item.imageUrl} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8}} />
+            : item.category==="Liquor" ? "🥃" : "🥤"
+          }
+        </div>
+        <div>
+          <div style={{fontSize:13,fontWeight:600,lineHeight:1.3,color:"#1A1A2E"}}>{item.name}</div>
+          <div style={{fontSize:11,color:"#888",marginTop:2}}>{item.category}</div>
+          {isLow && <div style={{fontSize:10,color:"#E74C3C",fontWeight:700,marginTop:2}}>⚠ LOW STOCK</div>}
+        </div>
+        <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:"#C8873A",fontWeight:600}}>
+          ₹{price}
+        </div>
+        {item.category==="Liquor" && (
+          <select value={unit} onChange={e => setUnit(e.target.value)} style={{fontSize:12,padding:"6px 8px"}}>
+            <option value="small">Small 30ml — ₹{item.price30ml}</option>
+            <option value="large">Large 60ml — ₹{item.price30ml*2}</option>
+          </select>
+        )}
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <button onClick={() => setQty(q => Math.max(1,q-1))} style={{background:"#F0F0F5",border:"none",color:"#1A1A2E",width:32,height:32,borderRadius:8,fontSize:16,fontWeight:700}}>−</button>
+          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,flex:1,textAlign:"center",fontWeight:600}}>{qty}</span>
+          <button onClick={() => setQty(q => q+1)} style={{background:"#F0F0F5",border:"none",color:"#1A1A2E",width:32,height:32,borderRadius:8,fontSize:16,fontWeight:700}}>+</button>
+          <button onClick={() => { onAdd(item,qty,unit); setQty(1); }}
+            style={{background:"#C8873A",border:"none",color:"#FFF",padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>
+            ADD
+          </button>
+        </div>
+      </Card>
+    );
+  }
+
+  // ── SERVER APP ────────────────────────────────────────────────────
+  function ServerApp({ inventory, orders, setOrders, bills, setBills, tables, getTableStatus, settings, toast, refreshInventory }) {
+    const [screen, setScreen] = useState("tables");
+    const [activeTable, setActiveTable] = useState(null);
+    const [customerInfo, setCustomerInfo] = useState({name:"",phone:""});
+    const [cart, setCart] = useState([]);
+    const [search, setSearch] = useState("");
+    const [showCustomerModal, setShowCustomerModal] = useState(false);
+    const [showBillConfirm, setShowBillConfirm] = useState(false);
+    const [saving, setSaving] = useState(false);
+
+    const openTable = table => {
+      const status = getTableStatus(table);
+      if (status==="billed") { toast("Table billed – awaiting payment","error"); return; }
+      setActiveTable(table);
+      const existing = orders.filter(o => o.tableNumber===table && o.status==="open");
+      if (!existing.length) {
+        setShowCustomerModal(true); setCart([]);
+      } else {
+        setCustomerInfo({name:existing[0].customerName, phone:existing[0].customerPhone});
+        const cartMap = {};
+        existing.forEach(o => {
+          const key = `${o.itemId}-${o.unit}`;
+          if (cartMap[key]) { cartMap[key].qty += o.qty; cartMap[key].lineTotal += o.lineTotal; }
+          else cartMap[key] = {key,itemId:o.itemId,name:o.itemName,qty:o.qty,unit:o.unit,unitPrice:o.unitPrice,lineTotal:o.lineTotal,category:o.category};
         });
-        toast(`Added ${item.name} ×${qty}`,"success");
-      };
+        setCart(Object.values(cartMap));
+      }
+      setScreen("order");
+    };
 
-      const removeFromCart = key => setCart(p => p.filter(c => c.key!==key));
-      const updateCartQty = (key, delta) => setCart(p =>
-        p.map(c => c.key===key ? {...c, qty:Math.max(1,c.qty+delta), lineTotal:Math.max(1,c.qty+delta)*c.unitPrice} : c)
-      );
+    const addToCart = (item, qty, unit) => {
+      const price = item.category==="Liquor" ? item.price30ml*(unit==="small"?1:2) : item.priceBottle;
+      const key = `${item.id}-${unit}`;
+      setCart(prev => {
+        const ex = prev.find(c => c.key===key);
+        if (ex) return prev.map(c => c.key===key ? {...c, qty:c.qty+qty, lineTotal:(c.qty+qty)*price} : c);
+        return [...prev, {key,itemId:item.id,name:item.name,qty,unit,unitPrice:price,lineTotal:price*qty,category:item.category}];
+      });
+      toast(`${item.name} ×${qty} added`,"success");
+    };
 
-      const subtotal = cart.reduce((a,c) => a+c.lineTotal, 0);
-      const gstAmount = subtotal * GST_RATE;
-      const total = subtotal + gstAmount;
+    const removeFromCart = key => setCart(p => p.filter(c => c.key!==key));
+    const updateCartQty = (key, delta) => setCart(p =>
+      p.map(c => c.key===key ? {...c, qty:Math.max(1,c.qty+delta), lineTotal:Math.max(1,c.qty+delta)*c.unitPrice} : c)
+    );
 
-      const holdOrder = () => {
-        const newOrders = cart.map(c => ({
-          orderId:`ORD-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`,
-          tableNumber:activeTable, customerName:customerInfo.name, customerPhone:customerInfo.phone,
-          itemId:c.itemId, itemName:c.name, qty:c.qty, unit:c.unit,
-          unitPrice:c.unitPrice, lineTotal:c.lineTotal, category:c.category,
-          status:"open",
-          date:new Date().toLocaleDateString("en-IN"),
-          time:new Date().toLocaleTimeString("en-IN"),
-        }));
+    const subtotal = cart.reduce((a,c) => a+c.lineTotal, 0);
+    const gstAmount = subtotal * GST_RATE;
+    const total = subtotal + gstAmount;
+
+    const holdOrder = async () => {
+      if (!cart.length) return;
+      setSaving(true);
+      const newOrders = cart.map(c => ({
+        orderId:`ORD-${Date.now()}-${Math.random().toString(36).slice(2,5).toUpperCase()}`,
+        tableNumber:activeTable, customerName:customerInfo.name, customerPhone:customerInfo.phone,
+        itemId:c.itemId, itemName:c.name, qty:c.qty, unit:c.unit,
+        unitPrice:c.unitPrice, lineTotal:c.lineTotal, category:c.category, status:"open",
+        date:new Date().toLocaleDateString("en-IN"),
+        time:new Date().toLocaleTimeString("en-IN"),
+      }));
+      try {
+        await gasGet("saveOrder", { tableNumber: activeTable, orders: newOrders });
         setOrders(p => [...p.filter(o => !(o.tableNumber===activeTable && o.status==="open")), ...newOrders]);
-        toast("Order saved!","success");
-        setScreen("tables");
-      };
+        toast("Order held!","success");
+      } catch(e) { toast("Save failed","error"); }
+      setSaving(false);
+      setScreen("tables");
+    };
 
-      const generateBill = () => {
-        const billId = `BILL-${Date.now()}`;
-        const bill = {
-          billId, tableNumber:activeTable,
-          customerName:customerInfo.name, customerPhone:customerInfo.phone,
-          subtotal, gstAmount, total,
-          dateTime:new Date().toLocaleString("en-IN"),
-          items:cart.map(c => ({ name:c.name, qty:c.qty, unit:c.unit, rate:c.unitPrice, lineTotal:c.lineTotal, itemId:c.itemId, category:c.category })),
-        };
+    const generateBill = async () => {
+      if (!cart.length) return;
+      setSaving(true);
+      const billId = `BILL-${Date.now()}`;
+      const bill = {
+        billId, tableNumber:activeTable,
+        customerName:customerInfo.name, customerPhone:customerInfo.phone,
+        subtotal, gstAmount, total,
+        dateTime:new Date().toLocaleString("en-IN"),
+        items:cart.map(c => ({name:c.name,qty:c.qty,unit:c.unit,rate:c.unitPrice,lineTotal:c.lineTotal,itemId:c.itemId,category:c.category})),
+      };
+      try {
+        await gasGet("saveBill", bill);
+        await gasGet("updateOrderStatus", {tableNumber:activeTable, newStatus:"billed"});
         setBills(p => [...p, bill]);
         setOrders(p => p.map(o => o.tableNumber===activeTable ? {...o,status:"billed"} : o));
         generateBillPDF(bill, settings);
-        toast("Bill generated & downloaded!","success");
-        setShowBillConfirm(false);
-        setScreen("tables");
-      };
+        await refreshInventory();
+        toast("Bill generated!","success");
+      } catch(e) { toast("Bill save failed","error"); }
+      setSaving(false);
+      setShowBillConfirm(false);
+      setScreen("tables");
+    };
 
-      const filtered = inventory.filter(i =>
-        i.active && (i.name.toLowerCase().includes(search.toLowerCase()) || i.category.toLowerCase().includes(search.toLowerCase()))
-      );
+    const filtered = inventory.filter(i =>
+      i.active && (i.name.toLowerCase().includes(search.toLowerCase()) || i.category.toLowerCase().includes(search.toLowerCase()))
+    );
 
-      if (screen==="tables") return (
-        <div style={{padding:"24px 20px",maxWidth:1200,margin:"0 auto"}}>
-          <h2 style={{fontFamily:"'Bebas Neue',cursive",fontSize:28,color:"#F5A623",letterSpacing:2,marginBottom:20}}>TABLE VIEW</h2>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:12}}>
-            {tables.map(t => {
-              const status = getTableStatus(t);
-              const c = {
-                free:     { bg:"#0F2A0F", border:"#3DD410", text:"#3DD410", label:"FREE"     },
-                occupied: { bg:"#2A1A00", border:"#F5A623", text:"#F5A623", label:"OCCUPIED" },
-                billed:   { bg:"#2A0A0A", border:"#E85D5D", text:"#E85D5D", label:"BILLED"   },
-              }[status];
-              return (
-                <div key={t} onClick={() => openTable(t)}
-                  style={{background:c.bg,border:`2px solid ${c.border}`,borderRadius:12,padding:"24px 16px",textAlign:"center",cursor:"pointer",transition:"transform 0.15s",userSelect:"none"}}
-                  onMouseEnter={e => e.currentTarget.style.transform="scale(1.04)"}
-                  onMouseLeave={e => e.currentTarget.style.transform="scale(1)"}>
-                  <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:36,color:c.text}}>{t}</div>
-                  <div style={{fontSize:11,color:c.text,letterSpacing:2,marginTop:4}}>{c.label}</div>
-                </div>
-              );
-            })}
-          </div>
-
-          {showCustomerModal && (
-            <Modal title={`Table ${activeTable} — Customer Info`} onClose={() => { setShowCustomerModal(false); setScreen("tables"); }}>
-              <Label>Customer Name</Label>
-              <input value={customerInfo.name} onChange={e => setCustomerInfo(p => ({...p,name:e.target.value}))} placeholder="e.g. Arjun Kumar" style={{marginBottom:12}} />
-              <Label>Phone Number</Label>
-              <input value={customerInfo.phone} onChange={e => setCustomerInfo(p => ({...p,phone:e.target.value}))} placeholder="9876543210" style={{marginBottom:16}} />
-              <button onClick={() => setShowCustomerModal(false)} style={{width:"100%",background:"#F5A623",color:"#0A0A0F",border:"none",borderRadius:8,padding:"10px 0",fontWeight:700}}>
-                Start Order
-              </button>
-            </Modal>
-          )}
+    // ── TABLE GRID ──
+    if (screen==="tables") return (
+      <div style={{padding:"16px",maxWidth:800,margin:"0 auto"}}>
+        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:24,color:"#1A1A2E",letterSpacing:2,marginBottom:14}}>TABLES</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10}}>
+          {tables.map(t => {
+            const status = getTableStatus(t);
+            const cfg = {
+              free:     {bg:"#F0FBF0", border:"#27AE60", text:"#27AE60", label:"FREE"},
+              occupied: {bg:"#FFF8F0", border:"#C8873A", text:"#C8873A", label:"BUSY"},
+              billed:   {bg:"#FFF0F0", border:"#E74C3C", text:"#E74C3C", label:"BILLED"},
+            }[status];
+            return (
+              <div key={t} onClick={() => openTable(t)} style={{
+                background:cfg.bg, border:`2px solid ${cfg.border}`,
+                borderRadius:14, padding:"20px 12px", textAlign:"center",
+                cursor:"pointer", userSelect:"none",
+              }}>
+                <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:32,color:cfg.text}}>{t}</div>
+                <div style={{fontSize:10,color:cfg.text,letterSpacing:2,marginTop:2,fontWeight:700}}>{cfg.label}</div>
+              </div>
+            );
+          })}
         </div>
-      );
 
-      return (
-        <div style={{display:"flex",height:"calc(100vh - 56px)",overflow:"hidden"}}>
-          {/* Left: Menu */}
-          <div style={{flex:1,overflowY:"auto",padding:"16px 12px",borderRight:"1px solid #2A2A3E"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
-              <button onClick={() => setScreen("tables")} style={{background:"transparent",border:"1px solid #2A2A3E",color:"#8A8A9A",borderRadius:8,padding:"6px 12px",fontSize:12}}>← Tables</button>
-              <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:22,color:"#F5A623",letterSpacing:2}}>TABLE {activeTable}</div>
-              <div style={{fontSize:12,color:"#8A8A9A",marginLeft:"auto"}}>{customerInfo.name}</div>
-            </div>
-            <input placeholder="Search items..." value={search} onChange={e => setSearch(e.target.value)} style={{marginBottom:12}} />
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+        {showCustomerModal && (
+          <Modal title={`Table ${activeTable} — Customer`} onClose={() => {setShowCustomerModal(false); setScreen("tables");}}>
+            <Label>Customer Name</Label>
+            <input value={customerInfo.name} onChange={e => setCustomerInfo(p=>({...p,name:e.target.value}))} placeholder="e.g. Arjun Kumar" style={{marginBottom:12}} />
+            <Label>Phone Number</Label>
+            <input value={customerInfo.phone} onChange={e => setCustomerInfo(p=>({...p,phone:e.target.value}))} placeholder="9876543210" inputMode="tel" style={{marginBottom:20}} />
+            <Btn onClick={() => setShowCustomerModal(false)} style={{width:"100%",padding:"13px 0",fontSize:14}}>Start Order</Btn>
+          </Modal>
+        )}
+      </div>
+    );
+
+    // ── ORDER SCREEN (mobile: stacked) ──
+    return (
+      <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 54px)",overflow:"hidden"}}>
+        {/* Header */}
+        <div style={{background:"#FFFFFF",padding:"10px 14px",borderBottom:"1px solid #EBEBF5",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <button onClick={() => setScreen("tables")} style={{background:"#F0F0F5",border:"none",color:"#1A1A2E",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600}}>← Back</button>
+          <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#C8873A",letterSpacing:2}}>TABLE {activeTable}</div>
+          <div style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{customerInfo.name}</div>
+        </div>
+
+        {/* Body: menu + cart side by side on tablet, stacked on phone */}
+        <div style={{display:"flex",flex:1,overflow:"hidden",flexDirection:"row"}}>
+          {/* Menu */}
+          <div style={{flex:1,overflowY:"auto",padding:"12px 10px",borderRight:"1px solid #EBEBF5",minWidth:0}}>
+            <input placeholder="🔍 Search..." value={search} onChange={e => setSearch(e.target.value)} style={{marginBottom:10,background:"#F7F8FA"}} />
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
               {filtered.map(item => <MenuItemCard key={item.id} item={item} onAdd={addToCart} />)}
+              {!filtered.length && <div style={{gridColumn:"1/-1",textAlign:"center",color:"#888",padding:30,fontSize:13}}>No items found</div>}
             </div>
           </div>
 
-          {/* Right: Cart */}
-          <div style={{width:320,display:"flex",flexDirection:"column",background:"#13131A"}}>
-            <div style={{padding:"16px 16px 8px",borderBottom:"1px solid #2A2A3E"}}>
-              <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#F5A623",letterSpacing:2}}>RUNNING ORDER</div>
+          {/* Cart */}
+          <div style={{width:260,display:"flex",flexDirection:"column",background:"#FFFFFF",flexShrink:0}}>
+            <div style={{padding:"10px 12px 6px",borderBottom:"1px solid #EBEBF5"}}>
+              <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:16,color:"#1A1A2E",letterSpacing:2}}>ORDER ({cart.length})</div>
             </div>
-            <div style={{flex:1,overflowY:"auto",padding:"8px 12px"}}>
+            <div style={{flex:1,overflowY:"auto",padding:"6px 10px"}}>
               {cart.length===0
-                ? <div style={{textAlign:"center",color:"#8A8A9A",fontSize:13,marginTop:40}}>No items added yet</div>
+                ? <div style={{textAlign:"center",color:"#888",fontSize:12,marginTop:30}}>Empty</div>
                 : cart.map(c => (
-                  <div key={c.key} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid #1E1E2E"}}>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:500}}>{c.name}</div>
-                      <div style={{fontSize:11,color:"#8A8A9A"}}>{c.unit} · ₹{c.unitPrice}</div>
+                  <div key={c.key} style={{padding:"8px 0",borderBottom:"1px solid #F0F0F5"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                      <div style={{fontSize:12,fontWeight:600,flex:1,lineHeight:1.3}}>{c.name}</div>
+                      <button onClick={() => removeFromCart(c.key)} style={{background:"none",border:"none",color:"#E74C3C",fontSize:16,padding:"0 2px",marginLeft:4}}>×</button>
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:6}}>
-                      <button onClick={() => updateCartQty(c.key,-1)} style={{background:"#1E1E2E",border:"1px solid #2A2A3E",color:"#E8E8F0",width:24,height:24,borderRadius:6,fontSize:14}}>−</button>
-                      <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,minWidth:20,textAlign:"center"}}>{c.qty}</span>
-                      <button onClick={() => updateCartQty(c.key,1)} style={{background:"#1E1E2E",border:"1px solid #2A2A3E",color:"#E8E8F0",width:24,height:24,borderRadius:6,fontSize:14}}>+</button>
-                      <button onClick={() => removeFromCart(c.key)} style={{background:"transparent",border:"none",color:"#E85D5D",fontSize:16,padding:"0 2px"}}>×</button>
+                    <div style={{fontSize:11,color:"#888",marginBottom:4}}>{c.unit} · ₹{c.unitPrice}</div>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <button onClick={() => updateCartQty(c.key,-1)} style={{background:"#F0F0F5",border:"none",width:24,height:24,borderRadius:6,fontSize:13,fontWeight:700}}>−</button>
+                        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,fontWeight:600,minWidth:18,textAlign:"center"}}>{c.qty}</span>
+                        <button onClick={() => updateCartQty(c.key,1)} style={{background:"#F0F0F5",border:"none",width:24,height:24,borderRadius:6,fontSize:13,fontWeight:700}}>+</button>
+                      </div>
+                      <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:"#C8873A",fontWeight:600}}>₹{c.lineTotal.toFixed(0)}</span>
                     </div>
-                    <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,minWidth:60,textAlign:"right",color:"#F5A623"}}>₹{c.lineTotal.toFixed(0)}</div>
                   </div>
                 ))
               }
             </div>
-            <div style={{padding:"12px 16px",borderTop:"1px solid #2A2A3E",background:"#0F0F1A"}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#8A8A9A",marginBottom:4}}>
-                <span>Subtotal</span><span style={{fontFamily:"'JetBrains Mono',monospace"}}>₹{subtotal.toFixed(0)}</span>
+            <div style={{padding:"10px 12px",borderTop:"1px solid #EBEBF5",background:"#F7F8FA"}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginBottom:2}}>
+                <span>Subtotal</span><span>₹{subtotal.toFixed(0)}</span>
               </div>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#8A8A9A",marginBottom:8}}>
-                <span>GST (18%)</span><span style={{fontFamily:"'JetBrains Mono',monospace"}}>₹{gstAmount.toFixed(0)}</span>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginBottom:8}}>
+                <span>GST 18%</span><span>₹{gstAmount.toFixed(0)}</span>
               </div>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:16,fontWeight:700,color:"#F5A623",marginBottom:12}}>
-                <span>TOTAL</span><span style={{fontFamily:"'JetBrains Mono',monospace"}}>₹{total.toFixed(0)}</span>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:700,color:"#1A1A2E",marginBottom:10}}>
+                <span>TOTAL</span><span style={{fontFamily:"'JetBrains Mono',monospace",color:"#C8873A"}}>₹{total.toFixed(0)}</span>
               </div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={holdOrder} disabled={cart.length===0} style={{flex:1,background:"#1E1E2E",border:"1px solid #2A2A3E",color:"#E8E8F0",borderRadius:8,padding:"10px 0",fontSize:12,fontWeight:600}}>HOLD</button>
-                <button onClick={() => setShowBillConfirm(true)} disabled={cart.length===0} style={{flex:2,background:"#F5A623",border:"none",color:"#0A0A0F",borderRadius:8,padding:"10px 0",fontSize:12,fontWeight:700}}>GENERATE BILL</button>
+              <div style={{display:"flex",gap:6}}>
+                <Btn variant="secondary" onClick={holdOrder} disabled={!cart.length||saving} style={{flex:1,padding:"10px 0",fontSize:11}}>HOLD</Btn>
+                <Btn onClick={() => setShowBillConfirm(true)} disabled={!cart.length||saving} style={{flex:2,padding:"10px 0",fontSize:11}}>BILL</Btn>
               </div>
             </div>
           </div>
-
-          {showBillConfirm && (
-            <Modal title="Confirm Bill Generation" onClose={() => setShowBillConfirm(false)}>
-              <p style={{color:"#8A8A9A",fontSize:13,marginBottom:16}}>
-                Table {activeTable} will be locked after this. Grand Total: <strong style={{color:"#F5A623"}}>₹{total.toFixed(0)}</strong>
-              </p>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={() => setShowBillConfirm(false)} style={{flex:1,background:"#1E1E2E",border:"1px solid #2A2A3E",color:"#E8E8F0",borderRadius:8,padding:"10px 0",fontSize:13}}>Cancel</button>
-                <button onClick={generateBill} style={{flex:2,background:"#F5A623",border:"none",color:"#0A0A0F",borderRadius:8,padding:"10px 0",fontSize:13,fontWeight:700}}>Yes, Generate Bill</button>
-              </div>
-            </Modal>
-          )}
         </div>
-      );
-    }
 
-    // ── OVERVIEW TAB ─────────────────────────────────────────────────────────
-    function OverviewTab({ orders, bills, inventory }) {
-      const todayStr = new Date().toLocaleDateString("en-IN");
-      const todayBills = bills.filter(b => b.dateTime?.includes(todayStr));
-      const todayRevenue = todayBills.reduce((a,b) => a+b.total, 0);
-      const uniqueOpen = [...new Set(orders.filter(o=>o.status==="open").map(o=>o.tableNumber))].length;
-      const lowStock = inventory.filter(i => i.active && i.qty<=i.lowStockThreshold).length;
+        {showBillConfirm && (
+          <Modal title="Generate Bill?" onClose={() => setShowBillConfirm(false)}>
+            <p style={{color:"#888",fontSize:13,marginBottom:6}}>Table {activeTable} · {customerInfo.name}</p>
+            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:28,fontWeight:700,color:"#C8873A",marginBottom:20}}>₹{total.toFixed(0)}</div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn variant="secondary" onClick={() => setShowBillConfirm(false)} style={{flex:1}}>Cancel</Btn>
+              <Btn onClick={generateBill} disabled={saving} style={{flex:2}}>{saving?"Saving...":"Yes, Generate"}</Btn>
+            </div>
+          </Modal>
+        )}
+      </div>
+    );
+  }
 
-      const stats = [
-        { label:"Today's Revenue", value:`₹${todayRevenue.toLocaleString("en-IN",{maximumFractionDigits:0})}`, color:"#F5A623" },
-        { label:"Bills Today",     value:todayBills.length, color:"#3DD410" },
-        { label:"Open Tables",     value:uniqueOpen,        color:"#F5A623" },
-        { label:"Low Stock Alerts",value:lowStock, color:lowStock>0?"#E85D5D":"#3DD410" },
-      ];
-
-      return (
-        <div>
-          <SectionTitle>Overview</SectionTitle>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12,marginBottom:28}}>
-            {stats.map(s => (
-              <div key={s.label} style={{background:"#13131A",border:"1px solid #2A2A3E",borderRadius:12,padding:"16px 20px"}}>
-                <div style={{fontSize:12,color:"#8A8A9A",marginBottom:6}}>{s.label}</div>
-                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:24,fontWeight:500,color:s.color}}>{s.value}</div>
-              </div>
-            ))}
-          </div>
-          <SectionTitle>Recent Bills</SectionTitle>
-          <div style={{background:"#13131A",border:"1px solid #2A2A3E",borderRadius:12,overflow:"hidden"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-              <thead>
-                <tr style={{borderBottom:"1px solid #2A2A3E"}}>
-                  {["Bill ID","Table","Customer","Total","Date"].map(h => (
-                    <th key={h} style={{padding:"12px 16px",textAlign:"left",color:"#8A8A9A",fontWeight:500,fontSize:11,textTransform:"uppercase",letterSpacing:1}}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {bills.slice(-10).reverse().map(b => (
-                  <tr key={b.billId} style={{borderBottom:"1px solid #1E1E2E"}}>
-                    <td style={{padding:"10px 16px",fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"#F5A623"}}>{b.billId.slice(0,20)}</td>
-                    <td style={{padding:"10px 16px"}}>{b.tableNumber}</td>
-                    <td style={{padding:"10px 16px"}}>{b.customerName||"—"}</td>
-                    <td style={{padding:"10px 16px",fontFamily:"'JetBrains Mono',monospace",color:"#3DD410"}}>₹{b.total.toFixed(0)}</td>
-                    <td style={{padding:"10px 16px",color:"#8A8A9A",fontSize:12}}>{b.dateTime?.split(",")[0]}</td>
-                  </tr>
-                ))}
-                {!bills.length && <tr><td colSpan={5} style={{padding:"20px 16px",textAlign:"center",color:"#8A8A9A"}}>No bills yet today</td></tr>}
-              </tbody>
-            </table>
-          </div>
+  // ── OVERVIEW TAB ──────────────────────────────────────────────────
+  function OverviewTab({ orders, bills, inventory }) {
+    const todayStr = new Date().toLocaleDateString("en-IN");
+    const todayBills = bills.filter(b => b.dateTime?.includes(todayStr));
+    const todayRevenue = todayBills.reduce((a,b) => a+(+b.total||0), 0);
+    const uniqueOpen = [...new Set(orders.filter(o=>o.status==="open").map(o=>o.tableNumber))].length;
+    const lowStock = inventory.filter(i => i.active && i.qty<=i.lowStockThreshold).length;
+    const stats = [
+      {label:"Today's Revenue", value:`₹${todayRevenue.toLocaleString("en-IN",{maximumFractionDigits:0})}`, color:"#C8873A"},
+      {label:"Bills Today",     value:todayBills.length, color:"#27AE60"},
+      {label:"Open Tables",     value:uniqueOpen, color:"#2980B9"},
+      {label:"Low Stock",       value:lowStock, color:lowStock>0?"#E74C3C":"#27AE60"},
+    ];
+    return (
+      <div>
+        <SectionTitle>Overview</SectionTitle>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:24}}>
+          {stats.map(s => (
+            <Card key={s.label} style={{padding:"14px 16px"}}>
+              <div style={{fontSize:11,color:"#888",marginBottom:4}}>{s.label}</div>
+              <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:22,fontWeight:700,color:s.color}}>{s.value}</div>
+            </Card>
+          ))}
         </div>
-      );
-    }
+        <SectionTitle>Recent Bills</SectionTitle>
+        <Card>
+          {bills.length===0 && <div style={{padding:20,textAlign:"center",color:"#888",fontSize:13}}>No bills yet</div>}
+          {bills.slice(-10).reverse().map((b,i) => (
+            <div key={b.billId} style={{padding:"12px 16px",borderBottom:i<9?"1px solid #F0F0F5":"none",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:"#1A1A2E"}}>{b.customerName||"Guest"} · T{b.tableNumber}</div>
+                <div style={{fontSize:11,color:"#888",marginTop:2}}>{b.dateTime?.split(",")[0]}</div>
+              </div>
+              <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:15,fontWeight:700,color:"#27AE60"}}>₹{(+b.total||0).toFixed(0)}</div>
+            </div>
+          ))}
+        </Card>
+      </div>
+    );
+  }
 
-    // ── INVENTORY TAB ────────────────────────────────────────────────────────
-    function InventoryTab({ inventory, setInventory, settings, toast }) {
-      const [showAdd, setShowAdd] = useState(false);
-      const [editItem, setEditItem] = useState(null);
-      const [form, setForm] = useState({name:"",category:"Liquor",price30ml:"",priceBottle:"",mlPerBottle:750,qty:1,lowStockThreshold:2});
-      const [imageFile, setImageFile] = useState(null);
-      const [uploading, setUploading] = useState(false);
+  // ── INVENTORY TAB ─────────────────────────────────────────────────
+  function InventoryTab({ inventory, setInventory, settings, toast }) {
+    const [showAdd, setShowAdd] = useState(false);
+    const [editItem, setEditItem] = useState(null);
+    const [form, setForm] = useState({name:"",category:"Liquor",price30ml:"",priceBottle:"",mlPerBottle:750,qty:1,lowStockThreshold:2});
+    const [imageFile, setImageFile] = useState(null);
+    const [saving, setSaving] = useState(false);
 
-      const nextId = cat => {
-        const prefix = cat==="Liquor" ? "LQ" : "BV";
-        const num = String(inventory.filter(i=>i.id.startsWith(prefix)).length+1).padStart(4,"0");
-        return `${prefix}-${num}`;
+    const openAdd = () => {
+      setEditItem(null);
+      setForm({name:"",category:"Liquor",price30ml:"",priceBottle:"",mlPerBottle:750,qty:1,lowStockThreshold:2});
+      setShowAdd(true);
+    };
+    const openEdit = item => {
+      setEditItem(item);
+      setForm({name:item.name,category:item.category,price30ml:item.price30ml,priceBottle:item.priceBottle,mlPerBottle:item.mlPerBottle,qty:item.qty,lowStockThreshold:item.lowStockThreshold});
+      setShowAdd(true);
+    };
+
+    const saveItem = async () => {
+      if (!form.name.trim()) { toast("Item name required","error"); return; }
+      setSaving(true);
+      let imageUrl = editItem?.imageUrl || "";
+      if (imageFile) {
+        try {
+          const tempId = editItem ? editItem.id : `TEMP-${Date.now()}`;
+          imageUrl = await uploadToGithub(imageFile, tempId, settings);
+        } catch { toast("Image upload failed — item saved without image","info"); }
+      }
+      const payload = {
+        name:form.name.trim(), category:form.category,
+        price30ml:+form.price30ml, priceBottle:+form.priceBottle,
+        mlPerBottle:+form.mlPerBottle, qty:+form.qty,
+        lowStockThreshold:+form.lowStockThreshold, imageUrl,
       };
-
-      const openAdd = () => { setEditItem(null); setForm({name:"",category:"Liquor",price30ml:"",priceBottle:"",mlPerBottle:750,qty:1,lowStockThreshold:2}); setShowAdd(true); };
-      const openEdit = item => { setEditItem(item); setForm({name:item.name,category:item.category,price30ml:item.price30ml,priceBottle:item.priceBottle,mlPerBottle:item.mlPerBottle,qty:item.qty,lowStockThreshold:item.lowStockThreshold}); setShowAdd(true); };
-
-      const saveItem = async () => {
-        if (!form.name) { toast("Item name required","error"); return; }
-        setUploading(true);
-        let imageUrl = editItem?.imageUrl || "";
-        if (imageFile) {
-          try { imageUrl = await uploadToGithub(imageFile, editItem?editItem.id:nextId(form.category), settings); }
-          catch { toast("Image upload failed","error"); }
-        }
-        const parsed = { ...form, price30ml:+form.price30ml, priceBottle:+form.priceBottle, mlPerBottle:+form.mlPerBottle, qty:+form.qty, lowStockThreshold:+form.lowStockThreshold, imageUrl };
+      try {
         if (editItem) {
-          setInventory(p => p.map(i => i.id===editItem.id ? {...i,...parsed} : i));
+          await gasGet("updateInventoryItem", {...payload, id:editItem.id});
+          setInventory(p => p.map(i => i.id===editItem.id ? {...i,...payload} : i));
           toast("Item updated!","success");
         } else {
-          setInventory(p => [...p, { id:nextId(form.category), ...parsed, active:true }]);
+          const res = await gasGet("addInventoryItem", payload);
+          const newId = res.data?.id || `LOCAL-${Date.now()}`;
+          setInventory(p => [...p, {id:newId,...payload,active:true}]);
           toast("Item added!","success");
         }
-        setUploading(false); setShowAdd(false); setEditItem(null); setImageFile(null);
-      };
+      } catch(e) { toast("Save failed","error"); }
+      setSaving(false); setShowAdd(false); setEditItem(null); setImageFile(null);
+    };
 
-      const deleteItem = id => {
-        if (!confirm("Mark item as inactive?")) return;
+    const deleteItem = async id => {
+      if (!confirm("Mark item as inactive?")) return;
+      try {
+        await gasGet("deleteInventoryItem", {id});
         setInventory(p => p.map(i => i.id===id ? {...i,active:false} : i));
         toast("Item removed","info");
-      };
+      } catch { toast("Delete failed","error"); }
+    };
 
-      return (
-        <div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-            <SectionTitle>Inventory</SectionTitle>
-            <button onClick={openAdd} style={{background:"#F5A623",border:"none",color:"#0A0A0F",borderRadius:8,padding:"8px 18px",fontWeight:700,fontSize:13}}>+ Add Item</button>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
-            {inventory.filter(i=>i.active).map(item => {
-              const isLow = item.qty<=item.lowStockThreshold;
-              return (
-                <div key={item.id} style={{background:"#13131A",border:`1px solid ${isLow?"#E85D5D66":"#2A2A3E"}`,borderRadius:12,padding:"14px 14px 10px",position:"relative"}}>
-                  {isLow && <div style={{position:"absolute",top:10,right:10,background:"#E85D5D22",color:"#E85D5D",fontSize:10,padding:"2px 8px",borderRadius:20,fontWeight:700}}>LOW STOCK</div>}
-                  <div style={{background:"#2A2A3E",borderRadius:8,height:80,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,marginBottom:10,overflow:"hidden"}}>
-                    {item.imageUrl
-                      ? <img src={item.imageUrl} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover"}} />
-                      : item.category==="Liquor" ? "🥃" : "🥤"
-                    }
-                  </div>
-                  <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#8A8A9A",marginBottom:2}}>{item.id}</div>
-                  <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>{item.name}</div>
-                  <div style={{fontSize:11,color:"#8A8A9A",marginBottom:6}}>{item.category} · {item.mlPerBottle}ml</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:8}}>
-                    <div style={{background:"#1E1E2E",borderRadius:6,padding:"4px 8px",fontSize:11}}>
-                      <div style={{color:"#8A8A9A"}}>Per 30ml</div>
-                      <div style={{color:"#F5A623",fontFamily:"'JetBrains Mono',monospace"}}>₹{item.price30ml}</div>
-                    </div>
-                    <div style={{background:"#1E1E2E",borderRadius:6,padding:"4px 8px",fontSize:11}}>
-                      <div style={{color:"#8A8A9A"}}>Stock</div>
-                      <div style={{color:isLow?"#E85D5D":"#3DD410",fontFamily:"'JetBrains Mono',monospace"}}>{typeof item.qty==="number"?item.qty.toFixed(1):item.qty} btl</div>
-                    </div>
-                  </div>
-                  <div style={{display:"flex",gap:6}}>
-                    <button onClick={() => openEdit(item)} style={{flex:1,background:"#1E1E2E",border:"1px solid #2A2A3E",color:"#E8E8F0",borderRadius:6,padding:"6px 0",fontSize:11}}>Edit</button>
-                    <button onClick={() => deleteItem(item.id)} style={{background:"transparent",border:"1px solid #E85D5D44",color:"#E85D5D",borderRadius:6,padding:"6px 10px",fontSize:11}}>✕</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {showAdd && (
-            <Modal title={editItem?"Edit Item":"Add New Item"} onClose={() => { setShowAdd(false); setEditItem(null); }}>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                <FieldWrap full>
-                  <Label>Item Name</Label>
-                  <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="e.g. Jack Daniel's" />
-                </FieldWrap>
-                <div>
-                  <Label>Category</Label>
-                  <select value={form.category} onChange={e=>setForm(p=>({...p,category:e.target.value}))}>
-                    <option>Liquor</option><option>Beverage</option>
-                  </select>
-                </div>
-                <div>
-                  <Label>ML per Bottle</Label>
-                  <input type="number" value={form.mlPerBottle} onChange={e=>setForm(p=>({...p,mlPerBottle:e.target.value}))} />
-                </div>
-                <div>
-                  <Label>Price per 30ml (₹)</Label>
-                  <input type="number" value={form.price30ml} onChange={e=>setForm(p=>({...p,price30ml:e.target.value}))} />
-                </div>
-                <div>
-                  <Label>Price per Bottle (₹)</Label>
-                  <input type="number" value={form.priceBottle} onChange={e=>setForm(p=>({...p,priceBottle:e.target.value}))} />
-                </div>
-                <div>
-                  <Label>Opening Stock (btl)</Label>
-                  <input type="number" value={form.qty} onChange={e=>setForm(p=>({...p,qty:e.target.value}))} />
-                </div>
-                <div>
-                  <Label>Low Stock Threshold</Label>
-                  <input type="number" value={form.lowStockThreshold} onChange={e=>setForm(p=>({...p,lowStockThreshold:e.target.value}))} />
-                </div>
-                <FieldWrap full>
-                  <Label>Item Image</Label>
-                  <input type="file" accept="image/*" onChange={e=>setImageFile(e.target.files[0])} />
-                </FieldWrap>
-              </div>
-              <button onClick={saveItem} disabled={uploading} style={{width:"100%",background:"#F5A623",border:"none",color:"#0A0A0F",borderRadius:8,padding:"10px 0",fontWeight:700,fontSize:13,opacity:uploading?0.7:1}}>
-                {uploading?"Saving...": editItem?"Save Changes":"Add Item"}
-              </button>
-            </Modal>
-          )}
+    return (
+      <div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <SectionTitle>Inventory</SectionTitle>
+          <Btn onClick={openAdd} style={{padding:"8px 16px"}}>+ Add</Btn>
         </div>
-      );
-    }
-
-    // ── TABLES TAB ───────────────────────────────────────────────────────────
-    function TablesTab({ tables, getTableStatus, orders }) {
-      return (
-        <div>
-          <SectionTitle>Table Status</SectionTitle>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
-            {tables.map(t => {
-              const status = getTableStatus(t);
-              const clr = {free:"#3DD410",occupied:"#F5A623",billed:"#E85D5D"}[status];
-              const tableOrders = orders.filter(o=>o.tableNumber===t && o.status==="open");
-              const running = tableOrders.reduce((a,o)=>a+o.lineTotal,0);
-              return (
-                <div key={t} style={{background:"#13131A",border:`1px solid ${clr}44`,borderRadius:12,padding:16}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                    <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:28,color:clr}}>{t}</div>
-                    <div style={{fontSize:11,background:`${clr}22`,color:clr,padding:"3px 10px",borderRadius:20,alignSelf:"center",fontWeight:600}}>{status.toUpperCase()}</div>
-                  </div>
-                  {status!=="free" && (
-                    <>
-                      <div style={{fontSize:12,color:"#8A8A9A",marginBottom:4}}>{tableOrders[0]?.customerName||"—"}</div>
-                      <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:16,color:"#F5A623"}}>₹{running.toFixed(0)} <span style={{fontSize:11,color:"#8A8A9A"}}>running</span></div>
-                    </>
-                  )}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+          {inventory.filter(i=>i.active).map(item => {
+            const isLow = item.qty<=item.lowStockThreshold;
+            return (
+              <Card key={item.id} style={{padding:12,border:isLow?"1.5px solid #F5C0BB":"1px solid #EBEBF5",position:"relative"}}>
+                {isLow && <div style={{position:"absolute",top:8,right:8,background:"#FFF0F0",color:"#E74C3C",fontSize:9,padding:"2px 7px",borderRadius:20,fontWeight:700}}>LOW</div>}
+                <div style={{background:"#F7F8FA",borderRadius:8,height:70,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,marginBottom:8,overflow:"hidden"}}>
+                  {item.imageUrl ? <img src={item.imageUrl} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8}} /> : item.category==="Liquor" ? "🥃" : "🥤"}
                 </div>
-              );
-            })}
-          </div>
+                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:"#aaa",marginBottom:2}}>{item.id}</div>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:2,color:"#1A1A2E"}}>{item.name}</div>
+                <div style={{fontSize:11,color:"#888",marginBottom:8}}>{item.category}</div>
+                <div style={{display:"flex",gap:6,marginBottom:8}}>
+                  <div style={{flex:1,background:"#F7F8FA",borderRadius:6,padding:"5px 8px",fontSize:10}}>
+                    <div style={{color:"#888"}}>30ml</div>
+                    <div style={{color:"#C8873A",fontFamily:"'JetBrains Mono',monospace",fontWeight:600}}>₹{item.price30ml}</div>
+                  </div>
+                  <div style={{flex:1,background:"#F7F8FA",borderRadius:6,padding:"5px 8px",fontSize:10}}>
+                    <div style={{color:"#888"}}>Stock</div>
+                    <div style={{color:isLow?"#E74C3C":"#27AE60",fontFamily:"'JetBrains Mono',monospace",fontWeight:600}}>{typeof item.qty==="number"?item.qty.toFixed(1):item.qty}</div>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <Btn variant="secondary" onClick={() => openEdit(item)} style={{flex:1,padding:"7px 0",fontSize:11}}>Edit</Btn>
+                  <Btn variant="danger" onClick={() => deleteItem(item.id)} style={{padding:"7px 10px",fontSize:11}}>✕</Btn>
+                </div>
+              </Card>
+            );
+          })}
         </div>
-      );
-    }
 
-    // ── REPORTS TAB ──────────────────────────────────────────────────────────
-    function ReportsTab({ orders, bills }) {
-      const totalRevenue = bills.reduce((a,b)=>a+b.total,0);
-      const totalGST = bills.reduce((a,b)=>a+b.gstAmount,0);
-      const itemTotals = {};
-      bills.forEach(b => b.items.forEach(item => {
-        if (!itemTotals[item.name]) itemTotals[item.name]={qty:0,revenue:0};
-        itemTotals[item.name].qty += item.qty;
-        itemTotals[item.name].revenue += item.lineTotal;
-      }));
-      const topItems = Object.entries(itemTotals).sort((a,b)=>b[1].revenue-a[1].revenue).slice(0,8);
-
-      const exportCSV = () => {
-        const header = "Bill ID,Table,Customer,Subtotal,GST,Total,Date\n";
-        const rows = bills.map(b=>`${b.billId},${b.tableNumber},${b.customerName},${b.subtotal.toFixed(2)},${b.gstAmount.toFixed(2)},${b.total.toFixed(2)},${b.dateTime}`).join("\n");
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([header+rows],{type:"text/csv"}));
-        a.download = "bills-export.csv"; a.click();
-      };
-
-      return (
-        <div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-            <SectionTitle>Reports</SectionTitle>
-            <button onClick={exportCSV} style={{background:"transparent",border:"1px solid #2A2A3E",color:"#8A8A9A",borderRadius:8,padding:"6px 14px",fontSize:12}}>⬇ Export CSV</button>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12,marginBottom:28}}>
-            {[
-              {label:"Total Revenue",value:`₹${totalRevenue.toLocaleString("en-IN",{maximumFractionDigits:0})}`,color:"#F5A623"},
-              {label:"Total GST Collected",value:`₹${totalGST.toLocaleString("en-IN",{maximumFractionDigits:0})}`,color:"#3DD410"},
-              {label:"Total Bills",value:bills.length,color:"#F5A623"},
-            ].map(s => (
-              <div key={s.label} style={{background:"#13131A",border:"1px solid #2A2A3E",borderRadius:12,padding:"16px 20px"}}>
-                <div style={{fontSize:12,color:"#8A8A9A",marginBottom:6}}>{s.label}</div>
-                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:22,fontWeight:500,color:s.color}}>{s.value}</div>
+        {showAdd && (
+          <Modal title={editItem?"Edit Item":"Add Item"} onClose={() => {setShowAdd(false); setEditItem(null);}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+              <FieldWrap full>
+                <Label>Item Name</Label>
+                <input value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="e.g. Jack Daniel's" />
+              </FieldWrap>
+              <div>
+                <Label>Category</Label>
+                <select value={form.category} onChange={e=>setForm(p=>({...p,category:e.target.value}))}>
+                  <option>Liquor</option><option>Beverage</option>
+                </select>
               </div>
-            ))}
-          </div>
-          <SectionTitle>Top Selling Items</SectionTitle>
-          <div style={{background:"#13131A",border:"1px solid #2A2A3E",borderRadius:12,overflow:"hidden"}}>
-            {topItems.length ? topItems.map(([name,data],i) => (
-              <div key={name} style={{display:"flex",alignItems:"center",padding:"12px 16px",borderBottom:i<topItems.length-1?"1px solid #1E1E2E":"none"}}>
-                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:"#333",width:28}}>#{i+1}</div>
-                <div style={{flex:1,fontSize:13}}>{name}</div>
-                <div style={{fontSize:12,color:"#8A8A9A",marginRight:16}}>{data.qty} units</div>
-                <div style={{fontFamily:"'JetBrains Mono',monospace",color:"#F5A623",fontSize:13}}>₹{data.revenue.toFixed(0)}</div>
+              <div>
+                <Label>ML / Bottle</Label>
+                <input type="number" inputMode="numeric" value={form.mlPerBottle} onChange={e=>setForm(p=>({...p,mlPerBottle:e.target.value}))} />
               </div>
-            )) : (
-              <div style={{padding:"20px 16px",textAlign:"center",color:"#8A8A9A",fontSize:13}}>No data yet</div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // ── SETTINGS TAB ─────────────────────────────────────────────────────────
-    function SettingsTab({ settings, setSettings, toast }) {
-      const [form, setForm] = useState({...settings});
-      const save = () => { setSettings(form); toast("Settings saved!","success"); };
-      const fields = [
-        {key:"barName",label:"Bar Name"},
-        {key:"barAddress",label:"Address",full:true},
-        {key:"gstNumber",label:"GSTIN"},
-        {key:"gstRate",label:"GST Rate (%)",type:"number"},
-        {key:"tables",label:"Tables (comma-separated)",full:true},
-        {key:"currency",label:"Currency Symbol"},
-        {key:"githubOwner",label:"GitHub Owner"},
-        {key:"githubRepo",label:"GitHub Repo"},
-        {key:"githubToken",label:"GitHub Token",type:"password"},
-        {key:"logoPath",label:"Logo Path in Repo"},
-      ];
-      return (
-        <div>
-          <SectionTitle>Settings</SectionTitle>
-          <div style={{background:"#13131A",border:"1px solid #2A2A3E",borderRadius:12,padding:"20px 24px",maxWidth:600}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-              {fields.map(f => (
-                <FieldWrap key={f.key} full={f.full}>
-                  <Label>{f.label}</Label>
-                  <input type={f.type||"text"} value={form[f.key]||""} onChange={e=>setForm(p=>({...p,[f.key]:e.target.value}))} />
-                </FieldWrap>
-              ))}
+              <div>
+                <Label>Price / 30ml (₹)</Label>
+                <input type="number" inputMode="numeric" value={form.price30ml} onChange={e=>setForm(p=>({...p,price30ml:e.target.value}))} />
+              </div>
+              <div>
+                <Label>Price / Bottle (₹)</Label>
+                <input type="number" inputMode="numeric" value={form.priceBottle} onChange={e=>setForm(p=>({...p,priceBottle:e.target.value}))} />
+              </div>
+              <div>
+                <Label>Stock (btl)</Label>
+                <input type="number" inputMode="numeric" value={form.qty} onChange={e=>setForm(p=>({...p,qty:e.target.value}))} />
+              </div>
+              <div>
+                <Label>Low Stock Alert</Label>
+                <input type="number" inputMode="numeric" value={form.lowStockThreshold} onChange={e=>setForm(p=>({...p,lowStockThreshold:e.target.value}))} />
+              </div>
+              <FieldWrap full>
+                <Label>Item Image</Label>
+                <input type="file" accept="image/*" onChange={e=>setImageFile(e.target.files[0])} />
+              </FieldWrap>
             </div>
-            <button onClick={save} style={{marginTop:20,background:"#F5A623",border:"none",color:"#0A0A0F",borderRadius:8,padding:"10px 28px",fontWeight:700,fontSize:13}}>
-              Save Settings
-            </button>
-          </div>
-        </div>
-      );
-    }
+            <Btn onClick={saveItem} disabled={saving} style={{width:"100%",padding:"13px 0",fontSize:14}}>
+              {saving ? "Saving..." : editItem ? "Save Changes" : "Add Item"}
+            </Btn>
+          </Modal>
+        )}
+      </div>
+    );
+  }
 
-    // ── DASHBOARD ────────────────────────────────────────────────────────────
-    function Dashboard({ inventory, setInventory, orders, bills, setBills, settings, setSettings, tables, getTableStatus, toast }) {
-      const [tab, setTab] = useState("overview");
-      const tabs = [
-        {id:"overview", icon:"📊"},
-        {id:"inventory",icon:"🍾"},
-        {id:"tables",   icon:"🪑"},
-        {id:"reports",  icon:"📈"},
-        {id:"settings", icon:"⚙️"},
-      ];
-      return (
-        <div style={{display:"flex",height:"calc(100vh - 56px)"}}>
-          <div style={{width:200,background:"#13131A",borderRight:"1px solid #2A2A3E",padding:"20px 0",display:"flex",flexDirection:"column",gap:4}}>
-            {tabs.map(t => (
-              <button key={t.id} onClick={()=>setTab(t.id)} style={{
-                background:tab===t.id?"#F5A62318":"transparent",
-                borderLeft:tab===t.id?"3px solid #F5A623":"3px solid transparent",
-                border:"none",borderRight:"none",
-                color:tab===t.id?"#F5A623":"#8A8A9A",
-                padding:"10px 20px",textAlign:"left",fontSize:13,
-                fontWeight:tab===t.id?600:400,textTransform:"capitalize",
-                cursor:"pointer",letterSpacing:0.5,
-              }}>
-                {t.icon} {t.id.charAt(0).toUpperCase()+t.id.slice(1)}
-              </button>
+  // ── TABLES TAB ────────────────────────────────────────────────────
+  function TablesTab({ tables, getTableStatus, orders }) {
+    return (
+      <div>
+        <SectionTitle>Table Status</SectionTitle>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+          {tables.map(t => {
+            const status = getTableStatus(t);
+            const clr = {free:"#27AE60",occupied:"#C8873A",billed:"#E74C3C"}[status];
+            const tOrders = orders.filter(o=>o.tableNumber===t && o.status==="open");
+            const running = tOrders.reduce((a,o)=>a+(+o.lineTotal||0),0);
+            return (
+              <Card key={t} style={{padding:14,border:`1.5px solid ${clr}33`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:26,color:clr}}>{t}</div>
+                  <div style={{fontSize:10,background:`${clr}18`,color:clr,padding:"3px 10px",borderRadius:20,fontWeight:700}}>{status.toUpperCase()}</div>
+                </div>
+                {status!=="free" && (
+                  <>
+                    <div style={{fontSize:12,color:"#888",marginBottom:2}}>{tOrders[0]?.customerName||"—"}</div>
+                    <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:15,color:"#C8873A",fontWeight:700}}>₹{running.toFixed(0)}</div>
+                  </>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── REPORTS TAB ───────────────────────────────────────────────────
+  function ReportsTab({ bills }) {
+    const totalRevenue = bills.reduce((a,b)=>a+(+b.total||0),0);
+    const totalGST = bills.reduce((a,b)=>a+(+b.gstAmount||0),0);
+    const itemTotals = {};
+    bills.forEach(b => {
+      const items = Array.isArray(b.items) ? b.items : [];
+      items.forEach(item => {
+        if (!itemTotals[item.name]) itemTotals[item.name]={qty:0,revenue:0};
+        itemTotals[item.name].qty += +item.qty||0;
+        itemTotals[item.name].revenue += +item.lineTotal||0;
+      });
+    });
+    const topItems = Object.entries(itemTotals).sort((a,b)=>b[1].revenue-a[1].revenue).slice(0,10);
+
+    const exportCSV = () => {
+      const header = "Bill ID,Table,Customer,Subtotal,GST,Total,Date\n";
+      const rows = bills.map(b=>`${b.billId},${b.tableNumber},${b.customerName},${(+b.subtotal).toFixed(2)},${(+b.gstAmount).toFixed(2)},${(+b.total).toFixed(2)},${b.dateTime}`).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([header+rows],{type:"text/csv"}));
+      a.download = "bills-export.csv"; a.click();
+    };
+
+    return (
+      <div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <SectionTitle>Reports</SectionTitle>
+          <Btn variant="secondary" onClick={exportCSV} style={{padding:"7px 14px",fontSize:12}}>⬇ CSV</Btn>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
+          {[
+            {label:"Total Revenue", value:`₹${totalRevenue.toLocaleString("en-IN",{maximumFractionDigits:0})}`, color:"#C8873A"},
+            {label:"GST Collected",  value:`₹${totalGST.toLocaleString("en-IN",{maximumFractionDigits:0})}`, color:"#27AE60"},
+            {label:"Total Bills",    value:bills.length, color:"#2980B9"},
+          ].map(s => (
+            <Card key={s.label} style={{padding:"14px 16px"}}>
+              <div style={{fontSize:11,color:"#888",marginBottom:4}}>{s.label}</div>
+              <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:20,fontWeight:700,color:s.color}}>{s.value}</div>
+            </Card>
+          ))}
+        </div>
+        <SectionTitle>Top Items</SectionTitle>
+        <Card>
+          {topItems.length===0 && <div style={{padding:20,textAlign:"center",color:"#888",fontSize:13}}>No data yet</div>}
+          {topItems.map(([name,data],i) => (
+            <div key={name} style={{display:"flex",alignItems:"center",padding:"12px 16px",borderBottom:i<topItems.length-1?"1px solid #F0F0F5":"none",gap:10}}>
+              <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:"#CCC",width:22}}>#{i+1}</div>
+              <div style={{flex:1,fontSize:13,fontWeight:500}}>{name}</div>
+              <div style={{fontSize:11,color:"#888"}}>{data.qty} units</div>
+              <div style={{fontFamily:"'JetBrains Mono',monospace",color:"#C8873A",fontSize:13,fontWeight:700}}>₹{data.revenue.toFixed(0)}</div>
+            </div>
+          ))}
+        </Card>
+      </div>
+    );
+  }
+
+  // ── SETTINGS TAB ──────────────────────────────────────────────────
+  function SettingsTab({ settings, setSettings, toast }) {
+    const [form, setForm] = useState({...settings});
+    const [saving, setSaving] = useState(false);
+
+    const save = async () => {
+      setSaving(true);
+      try {
+        await gasGet("saveSettings", form);
+        setSettings(form);
+        toast("Settings saved!","success");
+      } catch(e) { toast("Save failed","error"); }
+      setSaving(false);
+    };
+
+    const fields = [
+      {key:"barName",     label:"Bar Name",                full:true},
+      {key:"barAddress",  label:"Address",                 full:true},
+      {key:"gstNumber",   label:"GSTIN"},
+      {key:"gstRate",     label:"GST Rate (%)",            type:"number"},
+      {key:"tables",      label:"Tables (comma separated)",full:true},
+      {key:"managerPin",  label:"Manager PIN",             type:"password"},
+      {key:"currency",    label:"Currency Symbol"},
+      {key:"githubOwner", label:"GitHub Owner"},
+      {key:"githubRepo",  label:"GitHub Repo"},
+      {key:"githubToken", label:"GitHub Token",            type:"password"},
+    ];
+
+    return (
+      <div>
+        <SectionTitle>Settings</SectionTitle>
+        <Card style={{padding:"20px 16px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            {fields.map(f => (
+              <FieldWrap key={f.key} full={f.full}>
+                <Label>{f.label}</Label>
+                <input
+                  type={f.type||"text"}
+                  value={form[f.key]||""}
+                  onChange={e=>setForm(p=>({...p,[f.key]:e.target.value}))}
+                  placeholder={f.key==="managerPin"?"Leave blank to keep current":""}
+                />
+              </FieldWrap>
             ))}
           </div>
-          <div style={{flex:1,overflowY:"auto",padding:"24px 28px"}}>
-            {tab==="overview"  && <OverviewTab  orders={orders} bills={bills} inventory={inventory} />}
-            {tab==="inventory" && <InventoryTab inventory={inventory} setInventory={setInventory} settings={settings} toast={toast} />}
-            {tab==="tables"    && <TablesTab    tables={tables} getTableStatus={getTableStatus} orders={orders} />}
-            {tab==="reports"   && <ReportsTab   orders={orders} bills={bills} />}
-            {tab==="settings"  && <SettingsTab  settings={settings} setSettings={setSettings} toast={toast} />}
-          </div>
+          <Btn onClick={save} disabled={saving} style={{marginTop:20,width:"100%",padding:"13px 0",fontSize:14}}>
+            {saving ? "Saving..." : "Save Settings"}
+          </Btn>
+        </Card>
+      </div>
+    );
+  }
+
+  // ── DASHBOARD ─────────────────────────────────────────────────────
+  function Dashboard({ inventory, setInventory, orders, bills, setBills, settings, setSettings, tables, getTableStatus, toast, refreshInventory }) {
+    const [tab, setTab] = useState("overview");
+    const tabs = [
+      {id:"overview",  icon:"📊", label:"Overview"},
+      {id:"inventory", icon:"🍾", label:"Inventory"},
+      {id:"tables",    icon:"🪑", label:"Tables"},
+      {id:"reports",   icon:"📈", label:"Reports"},
+      {id:"settings",  icon:"⚙️", label:"Settings"},
+    ];
+    return (
+      <div style={{display:"flex",height:"calc(100vh - 54px)"}}>
+        {/* Sidebar */}
+        <div style={{width:56,background:"#FFFFFF",borderRight:"1px solid #EBEBF5",display:"flex",flexDirection:"column",gap:2,paddingTop:8,flexShrink:0}}>
+          {tabs.map(t => (
+            <button key={t.id} onClick={()=>setTab(t.id)} title={t.label} style={{
+              background: tab===t.id ? "#FFF3E6" : "transparent",
+              borderLeft: tab===t.id ? "3px solid #C8873A" : "3px solid transparent",
+              border:"none",borderRight:"none",
+              padding:"12px 0", fontSize:18, textAlign:"center",
+              cursor:"pointer",
+            }}>
+              {t.icon}
+            </button>
+          ))}
         </div>
-      );
-    }
+        {/* Content */}
+        <div style={{flex:1,overflowY:"auto",padding:"16px"}}>
+          {tab==="overview"  && <OverviewTab  orders={orders} bills={bills} inventory={inventory} />}
+          {tab==="inventory" && <InventoryTab inventory={inventory} setInventory={setInventory} settings={settings} toast={toast} />}
+          {tab==="tables"    && <TablesTab    tables={tables} getTableStatus={getTableStatus} orders={orders} />}
+          {tab==="reports"   && <ReportsTab   bills={bills} />}
+          {tab==="settings"  && <SettingsTab  settings={settings} setSettings={setSettings} toast={toast} />}
+        </div>
+      </div>
+    );
+  }
 
-    function mapInvRow(r) {
-  return {
-    id: r["Item ID"], name: r["Item Name"], category: r["Category"],
-    imageUrl: r["Image URL"], price30ml: +r["Price 30ml"],
-    priceBottle: +r["Price Bottle"], mlPerBottle: +r["ML per Bottle"],
-    qty: +r["Qty Available"], lowStockThreshold: +r["Low Stock Threshold"],
-    active: r["Active"] !== false && r["Active"] !== "FALSE",
-  };
-}
-    // ── ROOT APP ─────────────────────────────────────────────────────────────
-    function App() {
-      const [mode, setMode] = useState("server");
-      const [pinInput, setPinInput] = useState("");
-      const [pinUnlocked, setPinUnlocked] = useState(false);
-      const [inventory, setInventory] = useState(MOCK_INVENTORY);
-      const [orders, setOrders] = useState([]);
-      const [bills, setBills] = useState([]);
-      const [settings, setSettings] = useState(MOCK_SETTINGS);
-      const { toasts, toast } = useToast();
+  // ── ROOT APP ──────────────────────────────────────────────────────
+  function App() {
+    const [mode, setMode] = useState("server");
+    const [pinUnlocked, setPinUnlocked] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [inventory, setInventory] = useState([]);
+    const [orders, setOrders]       = useState([]);
+    const [bills, setBills]         = useState([]);
+    const [settings, setSettings]   = useState(DEFAULT_SETTINGS);
+    const { toasts, toast } = useToast();
 
-      const tables = useMemo(() => settings.tables.split(",").map(t=>t.trim()).filter(Boolean), [settings.tables]);
+    const tables = useMemo(() =>
+      settings.tables?.split(",").map(t=>t.trim()).filter(Boolean) || [],
+      [settings.tables]
+    );
 
-      const getTableStatus = useCallback(table => {
-        const rows = orders.filter(o=>o.tableNumber===table && o.status!=="cancelled");
-        if (!rows.length) return "free";
-        if (rows.some(o=>o.status==="billed")) return "billed";
-        return "occupied";
-      }, [orders]);
+    const getTableStatus = useCallback(table => {
+      const rows = orders.filter(o => o.tableNumber===table && o.status!=="cancelled");
+      if (!rows.length) return "free";
+      if (rows.some(o => o.status==="billed")) return "billed";
+      return "occupied";
+    }, [orders]);
 
-      const handleModeChange = m => {
-        setMode(m);
-        if (m==="server") setPinUnlocked(false);
+    const refreshInventory = async () => {
+      try {
+        const res = await gasGet("getInventory");
+        if (res.success && res.data?.length) setInventory(res.data.map(mapInvRow));
+      } catch(e) {}
+    };
+
+    useEffect(() => {
+      const load = async () => {
+        try {
+          const [invRes, ordRes, billRes, settRes] = await Promise.all([
+            gasGet("getInventory"),
+            gasGet("getOrders"),
+            gasGet("getBills"),
+            gasGet("getSettings"),
+          ]);
+          if (invRes.success && invRes.data?.length)   setInventory(invRes.data.map(mapInvRow));
+          if (ordRes.success && ordRes.data?.length)   setOrders(ordRes.data.map(mapOrderRow));
+          if (billRes.success && billRes.data?.length) setBills(billRes.data.map(mapBillRow));
+          if (settRes.success && Object.keys(settRes.data||{}).length)
+            setSettings(s => ({...s, ...settRes.data}));
+        } catch(e) {
+          toast("Could not reach server — using local data","info");
+        }
+        setLoading(false);
       };
-useEffect(() => {
-  // Load inventory
-  fetch(`${APPS_SCRIPT_URL}?action=getInventory`)
-    .then(r => r.json())
-    .then(res => { if (res.success && res.data.length) setInventory(res.data.map(mapInvRow)); });
+      load();
+    }, []);
 
-  // Load settings
-  fetch(`${APPS_SCRIPT_URL}?action=getSettings`)
-    .then(r => r.json())
-    .then(res => { if (res.success && Object.keys(res.data).length) setSettings({...MOCK_SETTINGS,...res.data}); });
+    const handleModeChange = m => {
+      setMode(m);
+      if (m==="server") setPinUnlocked(false);
+    };
 
-  // Load orders
-  fetch(`${APPS_SCRIPT_URL}?action=getOrders`)
-    .then(r => r.json())
-    .then(res => { if (res.success) setOrders(res.data); });
+    if (loading) return <LoadingScreen />;
 
-  // Load bills
-  fetch(`${APPS_SCRIPT_URL}?action=getBills`)
-    .then(r => r.json())
-    .then(res => { if (res.success) setBills(res.data); });
-}, []);
+    return (
+      <div style={{background:"#F7F8FA",minHeight:"100vh",color:"#1A1A2E"}}>
+        <TopBar mode={mode} setMode={handleModeChange} barName={settings.barName} />
+        {mode==="server"
+          ? <ServerApp
+              inventory={inventory} orders={orders} setOrders={setOrders}
+              bills={bills} setBills={setBills} tables={tables}
+              getTableStatus={getTableStatus} settings={settings}
+              toast={toast} refreshInventory={refreshInventory}
+            />
+          : pinUnlocked
+            ? <Dashboard
+                inventory={inventory} setInventory={setInventory}
+                orders={orders} bills={bills} setBills={setBills}
+                settings={settings} setSettings={setSettings}
+                tables={tables} getTableStatus={getTableStatus}
+                toast={toast} refreshInventory={refreshInventory}
+              />
+            : <PinScreen onUnlock={() => setPinUnlocked(true)} toast={toast} />
+        }
+        <ToastContainer toasts={toasts} />
+      </div>
+    );
+  }
 
-      
-      return (
-        <div style={{background:"#0A0A0F",minHeight:"100vh",color:"#E8E8F0"}}>
-          <TopBar mode={mode} setMode={handleModeChange} />
-          {mode==="server"
-            ? <ServerApp inventory={inventory} orders={orders} setOrders={setOrders} bills={bills} setBills={setBills} tables={tables} getTableStatus={getTableStatus} settings={settings} toast={toast} />
-            : pinUnlocked
-              ? <Dashboard inventory={inventory} setInventory={setInventory} orders={orders} bills={bills} setBills={setBills} settings={settings} setSettings={setSettings} tables={tables} getTableStatus={getTableStatus} toast={toast} />
-              : <PinScreen pinInput={pinInput} setPinInput={setPinInput} onUnlock={() => { if(pinInput==="1234"){setPinUnlocked(true);}else toast("Wrong PIN","error"); }} />
-          }
-          <ToastContainer toasts={toasts} />
-        </div>
-      );
-    }
-
-    // ── MOUNT ─────────────────────────────────────────────────────────────────
-    const root = ReactDOM.createRoot(document.getElementById("root"));
-    root.render(<App />);
-  </script>
+  const root = ReactDOM.createRoot(document.getElementById("root"));
+  root.render(<App />);
+</script>
 </body>
 </html>
