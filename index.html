@@ -54,26 +54,7 @@
     const GST_RATE = 0.18;
 
     // ── MOCK DATA (remove once Apps Script is wired up) ──────────────────────
-    const MOCK_INVENTORY = [
-      { id:"LQ-0001", name:"Jack Daniel's",  category:"Liquor",   imageUrl:"", price30ml:120, priceBottle:2800, mlPerBottle:750, qty:5,  lowStockThreshold:2, active:true },
-      { id:"LQ-0002", name:"Royal Stag",     category:"Liquor",   imageUrl:"", price30ml:60,  priceBottle:1200, mlPerBottle:750, qty:12, lowStockThreshold:3, active:true },
-      { id:"BV-0001", name:"Coca Cola",      category:"Beverage", imageUrl:"", price30ml:0,   priceBottle:60,   mlPerBottle:300, qty:24, lowStockThreshold:5, active:true },
-      { id:"BV-0002", name:"Soda Water",     category:"Beverage", imageUrl:"", price30ml:0,   priceBottle:30,   mlPerBottle:300, qty:30, lowStockThreshold:10,active:true },
-      { id:"LQ-0003", name:"Old Monk",       category:"Liquor",   imageUrl:"", price30ml:40,  priceBottle:900,  mlPerBottle:750, qty:2,  lowStockThreshold:3, active:true },
-    ];
-    const MOCK_SETTINGS = {
-      barName:"THE VELVET BARREL",
-      barAddress:"12, Race Course Road, Coimbatore – 641018",
-      gstNumber:"33AABCT1332L1ZN",
-      gstRate:18,
-      githubOwner:"your-username",
-      githubRepo:"bar-assets",
-      githubToken:"ghp_xxxx",
-      logoPath:"assets/logo.png",
-      tables:"T1,T2,T3,T4,T5,T6,T7,T8",
-      currency:"₹",
-    };
-
+    
     // ── GITHUB IMAGE UPLOAD ──────────────────────────────────────────────────
     function fileToBase64(file) {
       return new Promise((res, rej) => {
