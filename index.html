@@ -473,24 +473,27 @@
     const [saving, setSaving] = useState(false);
 
     const openTable = table => {
-      const status = getTableStatus(table);
-      if (status==="billed") { toast("Table billed – awaiting payment","error"); return; }
-      setActiveTable(table);
-      const existing = orders.filter(o => o.tableNumber===table && o.status==="open");
-      if (!existing.length) {
-        setShowCustomerModal(true); setCart([]);
-      } else {
-        setCustomerInfo({name:existing[0].customerName, phone:existing[0].customerPhone});
-        const cartMap = {};
-        existing.forEach(o => {
-          const key = `${o.itemId}-${o.unit}`;
-          if (cartMap[key]) { cartMap[key].qty += o.qty; cartMap[key].lineTotal += o.lineTotal; }
-          else cartMap[key] = {key,itemId:o.itemId,name:o.itemName,qty:o.qty,unit:o.unit,unitPrice:o.unitPrice,lineTotal:o.lineTotal,category:o.category};
-        });
-        setCart(Object.values(cartMap));
-      }
-      setScreen("order");
-    };
+  const existing = orders.filter(o => o.tableNumber===table && o.status==="open");
+  setActiveTable(table);
+  if (existing.length) {
+    // Returning to an occupied table — restore cart, skip customer modal
+    setCustomerInfo({name:existing[0].customerName, phone:existing[0].customerPhone});
+    const cartMap = {};
+    existing.forEach(o => {
+      const key = `${o.itemId}-${o.unit}`;
+      if (cartMap[key]) { cartMap[key].qty += o.qty; cartMap[key].lineTotal += o.lineTotal; }
+      else cartMap[key] = {key,itemId:o.itemId,name:o.itemName,qty:o.qty,unit:o.unit,unitPrice:o.unitPrice,lineTotal:o.lineTotal,category:o.category};
+    });
+    setCart(Object.values(cartMap));
+    setScreen("order");
+  } else {
+    // Fresh table — ask for customer info (optional), then go to order
+    setCustomerInfo({name:"", phone:""});
+    setCart([]);
+    setShowCustomerModal(true);
+    setScreen("order");  // go to order screen behind the modal
+  }
+};
 
     const addToCart = (item, qty, unit) => {
       const price = item.category==="Liquor" ? item.price30ml*(unit==="small"?1:2) : item.priceBottle;
@@ -587,12 +590,16 @@
         </div>
 
         {showCustomerModal && (
-          <Modal title={`Table ${activeTable} — Customer`} onClose={() => {setShowCustomerModal(false); setScreen("tables");}}>
+          // REPLACE WITH:
+<Modal title={`Table ${activeTable} — Customer`} onClose={() => { setShowCustomerModal(false); setScreen("tables"); setActiveTable(null); }}>
             <Label>Customer Name</Label>
             <input value={customerInfo.name} onChange={e => setCustomerInfo(p=>({...p,name:e.target.value}))} placeholder="e.g. Arjun Kumar" style={{marginBottom:12}} />
             <Label>Phone Number</Label>
             <input value={customerInfo.phone} onChange={e => setCustomerInfo(p=>({...p,phone:e.target.value}))} placeholder="9876543210" inputMode="tel" style={{marginBottom:20}} />
-            <Btn onClick={() => setShowCustomerModal(false)} style={{width:"100%",padding:"13px 0",fontSize:14}}>Start Order</Btn>
+           // REPLACE WITH:
+<Btn onClick={() => setShowCustomerModal(false)} style={{width:"100%",padding:"13px 0",fontSize:14}}>
+  Start Order {(!customerInfo.name) && <span style={{fontSize:11,opacity:0.7}}>(name optional)</span>}
+</Btn>
           </Modal>
         )}
       </div>
@@ -602,7 +609,7 @@
     return (
       <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 54px)",overflow:"hidden"}}>
         <div style={{background:"#FFFFFF",padding:"10px 14px",borderBottom:"1px solid #EBEBF5",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <button onClick={() => setScreen("tables")} style={{background:"#F0F0F5",border:"none",color:"#1A1A2E",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600}}>← Back</button>
+          <button onClick={() => { setScreen("tables"); setShowCustomerModal(false); }} style={{background:"#F0F0F5",border:"none",color:"#1A1A2E",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600}}>← Back</button>
           <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#C8873A",letterSpacing:2}}>TABLE {activeTable}</div>
           <div style={{fontSize:12,color:"#888",marginLeft:"auto"}}>{customerInfo.name}</div>
         </div>
@@ -994,6 +1001,56 @@
     );
   }
 
+  function PinChangeForm({ toast }) {
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin]         = useState("");
+  const [confirm, setConfirm]       = useState("");
+  const [saving, setSaving]         = useState(false);
+
+  const handleChange = async () => {
+    if (!currentPin || !newPin) { toast("Fill in all fields","error"); return; }
+    if (newPin !== confirm)     { toast("New PINs don't match","error"); return; }
+    if (newPin.length < 4)      { toast("PIN must be at least 4 digits","error"); return; }
+    setSaving(true);
+    try {
+      // Verify current PIN first
+      const verify = await gasGet("verifyPin", { pin: currentPin });
+      if (!verify.success || !verify.data?.valid) {
+        toast("Current PIN is wrong","error");
+        setSaving(false); return;
+      }
+      await gasGet("saveSettings", { managerPin: newPin });
+      toast("PIN changed successfully!","success");
+      setCurrentPin(""); setNewPin(""); setConfirm("");
+    } catch(e) { toast("Save failed","error"); }
+    setSaving(false);
+  };
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      <FieldWrap full>
+        <Label>Current PIN</Label>
+        <input type="password" inputMode="numeric" maxLength={6} value={currentPin}
+          onChange={e=>setCurrentPin(e.target.value)} placeholder="Enter current PIN" />
+      </FieldWrap>
+      <div>
+        <Label>New PIN</Label>
+        <input type="password" inputMode="numeric" maxLength={6} value={newPin}
+          onChange={e=>setNewPin(e.target.value)} placeholder="Min 4 digits" />
+      </div>
+      <div>
+        <Label>Confirm New PIN</Label>
+        <input type="password" inputMode="numeric" maxLength={6} value={confirm}
+          onChange={e=>setConfirm(e.target.value)} placeholder="Repeat new PIN" />
+      </div>
+      <FieldWrap full>
+        <Btn onClick={handleChange} disabled={saving} style={{width:"100%",padding:"12px 0"}}>
+          {saving ? "Saving..." : "Change PIN"}
+        </Btn>
+      </FieldWrap>
+    </div>
+  );
+}
   // ── SETTINGS TAB ──────────────────────────────────────────────────
   function SettingsTab({ settings, setSettings, toast }) {
     const [form, setForm] = useState({...settings});
@@ -1007,20 +1064,25 @@
         toast("Settings saved!","success");
       } catch(e) { toast("Save failed","error"); }
       setSaving(false);
+      {/* ── Change PIN — separate from general settings ── */}
+<Card style={{padding:"20px 16px", marginTop:16}}>
+  <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:16,letterSpacing:2,marginBottom:12,color:"#1A1A2E"}}>CHANGE MANAGER PIN</div>
+  <PinChangeForm toast={toast} />
+</Card>
     };
 
-    const fields = [
-      {key:"barName",     label:"Bar Name",                full:true},
-      {key:"barAddress",  label:"Address",                 full:true},
-      {key:"gstNumber",   label:"GSTIN"},
-      {key:"gstRate",     label:"GST Rate (%)",            type:"number"},
-      {key:"tables",      label:"Tables (comma separated)",full:true},
-      {key:"managerPin",  label:"Manager PIN",             type:"password"},
-      {key:"currency",    label:"Currency Symbol"},
-      {key:"githubOwner", label:"GitHub Owner (username)"},
-      {key:"githubRepo",  label:"GitHub Repo name"},
-      {key:"githubToken", label:"GitHub Token (fine-grained PAT)",  type:"password", full:true},
-    ];
+
+const fields = [
+  {key:"barName",     label:"Bar Name",                full:true},
+  {key:"barAddress",  label:"Address",                 full:true},
+  {key:"gstNumber",   label:"GSTIN"},
+  {key:"gstRate",     label:"GST Rate (%)",            type:"number"},
+  {key:"tables",      label:"Tables (comma separated)",full:true},
+  {key:"currency",    label:"Currency Symbol"},
+  {key:"githubOwner", label:"GitHub Owner (username)"},
+  {key:"githubRepo",  label:"GitHub Repo name"},
+  {key:"githubToken", label:"GitHub Token (fine-grained PAT)",  type:"password", full:true},
+];
 
     return (
       <div>
