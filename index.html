@@ -606,26 +606,16 @@
 
         {/* ── Top bar ── */}
         <div style={{background:"#FFFFFF",padding:"8px 12px",borderBottom:"1px solid #EBEBF5",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-          <button onClick={() => { setScreen("tables"); setShowCustomerModal(false); }} style={{background:"#F0F0F5",border:"none",color:"#1A1A2E",borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:700,minHeight:44,whiteSpace:"nowrap"}}>← Back</button>
-          <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#C8873A",letterSpacing:2,flex:1}}>TABLE {activeTable}</div>
-          {customerInfo.name && <div style={{fontSize:11,color:"#888",maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{customerInfo.name}</div>}
-          {/* Cart badge tab switcher */}
-          <button onClick={() => setOrderTab(orderTab==="cart"?"menu":"cart")} style={{
-            background: orderTab==="cart" ? "#1A1A2E" : "#F0F0F5",
-            border:"none", borderRadius:10, padding:"10px 14px", minHeight:44,
-            color: orderTab==="cart" ? "#C8873A" : "#1A1A2E",
-            fontWeight:700, fontSize:13, position:"relative", whiteSpace:"nowrap",
-          }}>
-            🛒 {cart.length > 0 && <span style={{
-              position:"absolute", top:6, right:6,
-              background:"#E74C3C", color:"#FFF",
-              borderRadius:"50%", width:16, height:16,
-              fontSize:9, fontWeight:700,
-              display:"flex", alignItems:"center", justifyContent:"center",
-            }}>{cart.reduce((a,c)=>a+c.qty,0)}</span>}
-            ₹{total.toFixed(0)}
-          </button>
-        </div>
+  <button onClick={() => { setScreen("tables"); setShowCustomerModal(false); }} style={{background:"#F0F0F5",border:"none",color:"#1A1A2E",borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:700,minHeight:44,whiteSpace:"nowrap"}}>← Back</button>
+  <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,color:"#C8873A",letterSpacing:2,flex:1}}>TABLE {activeTable}</div>
+  <div style={{display:"flex",gap:6}}>
+    <button onClick={() => setOrderTab("menu")} style={{background:orderTab==="menu"?"#C8873A":"#F0F0F5",color:orderTab==="menu"?"#FFF":"#1A1A2E",border:"none",borderRadius:10,padding:"10px 14px",fontSize:12,fontWeight:700,minHeight:44}}>Menu</button>
+    <button onClick={() => setOrderTab("cart")} style={{background:orderTab==="cart"?"#1A1A2E":"#F0F0F5",color:orderTab==="cart"?"#C8873A":"#1A1A2E",border:"none",borderRadius:10,padding:"10px 14px",fontSize:12,fontWeight:700,minHeight:44,position:"relative"}}>
+      Cart
+      {cart.length > 0 && <span style={{position:"absolute",top:5,right:5,background:"#E74C3C",color:"#FFF",borderRadius:"50%",width:16,height:16,fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{cart.reduce((a,c)=>a+c.qty,0)}</span>}
+    </button>
+  </div>
+</div>
 
         {/* ── MENU TAB ── */}
         {orderTab==="menu" && (
