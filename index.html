@@ -7,9 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.9/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
   <style>
@@ -52,7 +52,7 @@
   </style>
 </head>
 <body>
-<div id="root"></div>
+<div id="root"><div id="vb-init" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;gap:12px"><div style="font-family:Georgia,serif;font-size:28px;color:#C8873A;letter-spacing:4px">VELVET BARREL</div><div style="color:#aaa;font-size:13px">Starting up...</div><div id="vb-err" style="display:none;margin-top:8px;padding:12px 16px;background:#FFF0F0;border-radius:8px;color:#E74C3C;font-size:12px;max-width:320px;text-align:center"></div></div></div>
 <div id="print-area" style="display:none"></div>
 
 <script type="text/babel">
@@ -1360,7 +1360,34 @@
     );
   }
 
-  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  try {
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  } catch(e) {
+    const el = document.getElementById("vb-err");
+    if (el) { el.style.display = "block"; el.textContent = "Error: " + e.message; }
+  }
+</script>
+<script>
+  window.addEventListener("error", function(e) {
+    var el = document.getElementById("vb-err");
+    var init = document.getElementById("vb-init");
+    if (el && init) {
+      init.style.display = "flex";
+      el.style.display = "block";
+      el.textContent = (e.message || "Script failed to load") + (e.filename ? " — " + e.filename.split("/").pop() : "");
+    }
+  });
+  // If Babel never fires after 8s, show hint
+  setTimeout(function() {
+    var init = document.getElementById("vb-init");
+    if (init && init.style.display !== "none") {
+      var el = document.getElementById("vb-err");
+      if (el && !el.textContent) {
+        el.style.display = "block";
+        el.textContent = "Timed out — CDN may be blocked. Try refreshing or check network.";
+      }
+    }
+  }, 8000);
 </script>
 </body>
 </html>
